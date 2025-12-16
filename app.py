@@ -1,256 +1,347 @@
-# app.py
-# Streamlit App – Software System Survey & Reporting
-
 import json
-from datetime import date
-from typing import Dict, Any, List
+import sqlite3
+from datetime import datetime
+from io import BytesIO
+from typing import Any, Dict, Optional
 
+import pandas as pd
 import streamlit as st
 
-# -----------------------------
-# Styling
-# -----------------------------
 
-def inject_css() -> None:
-    st.markdown(
+DB_PATH = "it_survey.db"
+FORM_VERSION = "v1.0"
+
+
+# ----------------------------
+# Database helpers
+# ----------------------------
+def get_conn():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
         """
-        <style>
-          .stApp {
-            background:
-              radial-gradient(900px 500px at 20% 10%, rgba(110,231,255,0.18), transparent 65%),
-              radial-gradient(900px 500px at 70% 25%, rgba(167,139,250,0.16), transparent 70%),
-              radial-gradient(1000px 700px at 50% 95%, rgba(45,212,191,0.12), transparent 60%),
-              linear-gradient(180deg, #070b14, #0b1220);
-          }
-          .panel {
-            background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
-            border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 16px;
-            padding: 14px;
-            margin-bottom: 12px;
-          }
-          .report {
-            background: #ffffff;
-            color: #0b1220;
-            border-radius: 14px;
-            padding: 18px;
-          }
-          .kv { display: grid; grid-template-columns: 220px 1fr; gap: 8px 12px; font-size: 12.5px; }
-          .k { color: rgba(0,0,0,0.65); }
-        </style>
-        """,
-        unsafe_allow_html=True,
+        CREATE TABLE IF NOT EXISTS survey_responses (
+            system_code TEXT PRIMARY KEY,
+            system_name TEXT,
+            business_group TEXT,
+            updated_by TEXT,
+            updated_at TEXT,
+            form_version TEXT,
+            payload_json TEXT
+        )
+        """
     )
+    conn.commit()
+    conn.close()
 
-# -----------------------------
-# Default data model
-# -----------------------------
 
-def default_data() -> Dict[str, Any]:
-    return {
-        # A
-        "system_name": "",
-        "system_code": "",
-        "business_group": "",
-        "business_owner": "",
-        "it_owner": "",
-        "vendor_partner": "",
-        "system_type": [],
-        "aviation_value_role": [],
-        "business_goal": "",
-        "functional_scope": "",
-        "user_objects": "",
-        "user_count": "",
-        "usage_area": [],
-        "deployment_year": "",
-        "current_status": "",
-        "biz_fit_score": 3,
-        "plan_3_5_years": "",
-        # B
-        "infra_model": "",
-        "dc_region": "",
-        "infra_provider": "",
-        "servers": "",
-        "os": "",
-        "cpu_ram_storage": "",
-        "db_engine": "",
-        "middleware": "",
-        "network": "",
-        "sla_uptime": "",
-        "ha_dr": "",
-        "rpo_rto": "",
-        "backup": [],
-        "compliance": [],
-        # C
-        "main_business_data": "",
-        "pii": "",
-        "sensitive_aviation": "",
-        "finance_payment": "",
-        "source_of_truth": "",
-        "data_format": "",
-        "data_size_growth": "",
-        "retention_policy": "",
-        "data_quality": "",
-        "provide_bi_ai": "",
-        "dw_dl_connection": "",
-        "sync_frequency": "",
-        "realtime_data": "",
-        # D
-        "related_systems": "",
-        "integration_role": "",
-        "integration_method": [],
-        "data_standards": [],
-        "protocols": [],
-        "integration_frequency": "",
-        "api_gateway": "",
-        "logging_monitoring": "",
-        "api_versioning": "",
-        "dependency_level": "",
-        # E
-        "rbac": "",
-        "auth_methods": [],
-        "encryption": "",
-        "legal_compliance": [],
-        # F
-        "digital_strategy_fit": 3,
-        "cloud_ai_readiness": "",
-        "scalability": "",
-        "recommendation": "",
-        "priority": "",
-        # G
-        "updated_by": "",
-        "updated_date": str(date.today()),
-        "form_version": "1.0",
-        "notes": "",
+def upsert_response(
+    system_code: str,
+    system_name: str,
+    business_group: str,
+    updated_by: str,
+    payload: dict,
+):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    updated_at = datetime.now().isoformat(timespec="seconds")
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    # Upsert theo system_code
+    cur.execute(
+        """
+        INSERT INTO survey_responses(system_code, system_name, business_group, updated_by, updated_at, form_version, payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(system_code) DO UPDATE SET
+            system_name=excluded.system_name,
+            business_group=excluded.business_group,
+            updated_by=excluded.updated_by,
+            updated_at=excluded.updated_at,
+            form_version=excluded.form_version,
+            payload_json=excluded.payload_json
+        """,
+        (system_code, system_name, business_group, updated_by, updated_at, FORM_VERSION, payload_json),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_response_by_code(system_code: str) -> Optional[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT payload_json FROM survey_responses WHERE system_code = ?", (system_code,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0]) if row[0] else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def load_all_responses() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql_query("SELECT * FROM survey_responses ORDER BY updated_at DESC", conn)
+    conn.close()
+    return df
+
+
+def delete_by_code(system_code: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM survey_responses WHERE system_code = ?", (system_code,))
+    conn.commit()
+    conn.close()
+
+
+# ----------------------------
+# Flatten JSON for export
+# ----------------------------
+def flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else str(k)
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            # List -> join string for Excel
+            if isinstance(v, list):
+                v = ", ".join([str(x) for x in v])
+            items.append((new_key, v))
+    return dict(items)
+
+
+def build_export_excel(raw_df: pd.DataFrame) -> bytes:
+    rows = []
+    for _, r in raw_df.iterrows():
+        payload = {}
+        try:
+            payload = json.loads(r["payload_json"]) if r["payload_json"] else {}
+        except json.JSONDecodeError:
+            payload = {}
+
+        flat = flatten_dict(payload)
+        flat.update(
+            {
+                "meta.system_code": r.get("system_code"),
+                "meta.system_name": r.get("system_name"),
+                "meta.business_group": r.get("business_group"),
+                "meta.updated_by": r.get("updated_by"),
+                "meta.updated_at": r.get("updated_at"),
+                "meta.form_version": r.get("form_version"),
+            }
+        )
+        rows.append(flat)
+
+    export_df = pd.DataFrame(rows)
+
+    def vc(col: str) -> pd.DataFrame:
+        if col not in export_df.columns:
+            return pd.DataFrame({"value": [], "count": []})
+        s = export_df[col].fillna("N/A").astype(str)
+        return s.value_counts().reset_index().rename(columns={"index": "value", "count": "count"})
+
+    summary_blocks = {
+        "System Type (A1)": vc("A1.loai_he_thong"),
+        "Value Chain Role (A1)": vc("A1.vai_tro"),
+        "Deployment Model (B1)": vc("B1.mo_hinh_ha_tang"),
+        "Lifecycle Plan 3-5y (A3)": vc("A3.ke_hoach_3_5_nam"),
+        "Priority (F)": vc("F.do_uu_tien"),
+        "Has PII (C1)": vc("C1.pii"),
+        "Realtime Data (C3)": vc("C3.realtime"),
     }
 
-ALL_KEYS: List[str] = list(default_data().keys())
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, sheet_name="RawData", index=False)
+        for sheet, sdf in summary_blocks.items():
+            sdf.to_excel(writer, sheet_name=sheet[:31], index=False)
 
-# -----------------------------
-# State helpers
-# -----------------------------
-
-def init_state():
-    if "data" not in st.session_state:
-        st.session_state.data = default_data()
-    for k in ALL_KEYS:
-        if k not in st.session_state:
-            st.session_state[k] = st.session_state.data.get(k, "")
+    return output.getvalue()
 
 
-def collect_form_data() -> Dict[str, Any]:
-    d = default_data()
-    for k in ALL_KEYS:
-        d[k] = st.session_state.get(k)
-    return d
-
-# -----------------------------
-# Formatting helpers
-# -----------------------------
-
-def fmt(v: Any) -> str:
-    if v is None:
-        return "—"
-    s = str(v).strip()
-    return s if s else "—"
+# ----------------------------
+# Session-state helpers
+# ----------------------------
+def set_if_absent(key: str, value: Any):
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
-def fmt_list(v: Any) -> str:
-    if isinstance(v, list) and v:
-        return ", ".join(v)
-    return "—"
+def clear_form():
+    # Xóa các key thuộc form (A..G + meta)
+    keys_to_delete = [k for k in st.session_state.keys() if k.startswith(("A", "B", "C", "D", "E", "F", "G"))]
+    for k in keys_to_delete:
+        del st.session_state[k]
 
-# -----------------------------
-# Report HTML
-# -----------------------------
 
-def build_report_html(d: Dict[str, Any]) -> str:
-    def kv(k, v):
-        return f"<div class='k'>{k}</div><div class='v'>{v}</div>"
-
-    return f"""
-    <div class='report'>
-      <h2>BÁO CÁO KHẢO SÁT HỆ THỐNG PHẦN MỀM</h2>
-      <div class='kv'>
-        {kv('Tên hệ thống', fmt(d['system_name']))}
-        {kv('Mã hệ thống', fmt(d['system_code']))}
-        {kv('Đơn vị nghiệp vụ', fmt(d['business_owner']))}
-        {kv('Đơn vị CNTT', fmt(d['it_owner']))}
-        {kv('Nhà cung cấp', fmt(d['vendor_partner']))}
-        {kv('Loại hệ thống', fmt_list(d['system_type']))}
-        {kv('Vai trò chuỗi giá trị HK', fmt_list(d['aviation_value_role']))}
-        {kv('Mục tiêu nghiệp vụ', fmt(d['business_goal']))}
-        {kv('Phạm vi chức năng', fmt(d['functional_scope']))}
-        {kv('Hạ tầng', fmt(d['infra_model']))}
-        {kv('DB Engine', fmt(d['db_engine']))}
-        {kv('Dữ liệu chính', fmt(d['main_business_data']))}
-        {kv('PII', fmt(d['pii']))}
-        {kv('Tích hợp BI/AI', fmt(d['provide_bi_ai']))}
-        {kv('Phương thức tích hợp', fmt_list(d['integration_method']))}
-        {kv('Khuyến nghị', fmt(d['recommendation']))}
-        {kv('Mức ưu tiên', fmt(d['priority']))}
-        {kv('Cập nhật bởi', fmt(d['updated_by']))}
-        {kv('Ngày cập nhật', fmt(d['updated_date']))}
-      </div>
-    </div>
+def payload_to_session_state(payload: dict):
     """
-
-# -----------------------------
-# Main App
-# -----------------------------
-
-def main():
-    st.set_page_config(page_title="Software System Survey", layout="wide")
-    inject_css()
-    init_state()
-
-    st.title("📋 Khảo sát & Quy hoạch Hệ thống Phần mềm")
-
-    with st.sidebar:
-        st.header("Quản lý dữ liệu")
-        uploaded = st.file_uploader("Upload JSON", type=["json"])
-        if uploaded:
-            st.session_state.data = json.load(uploaded)
-            for k in ALL_KEYS:
-                st.session_state[k] = st.session_state.data.get(k)
-            st.success("Đã nạp dữ liệu")
-
-        data = collect_form_data()
-        st.download_button(
-            "⬇️ Tải JSON",
-            json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
-            file_name="survey_system.json",
-            mime="application/json",
-        )
-
-    col1, col2 = st.columns([1.2, 1])
-
-    with col1:
-        st.subheader("📝 Form khảo sát")
-        st.text_input("Tên hệ thống", key="system_name")
-        st.text_input("Mã hệ thống", key="system_code")
-        st.text_input("Đơn vị nghiệp vụ", key="business_owner")
-        st.text_input("Đơn vị CNTT", key="it_owner")
-        st.text_input("Nhà cung cấp", key="vendor_partner")
-        st.multiselect("Loại hệ thống", ["Core", "Support", "Legacy", "Cloud-native"], key="system_type")
-        st.multiselect("Vai trò chuỗi giá trị HK", ["Bán vé", "Khai thác bay", "Bảo dưỡng", "DVHK", "Tài chính"], key="aviation_value_role")
-        st.text_area("Mục tiêu nghiệp vụ", key="business_goal")
-        st.text_area("Phạm vi chức năng", key="functional_scope")
-        st.selectbox("Mô hình hạ tầng", ["On-Prem", "Private Cloud", "Public Cloud", "Hybrid"], key="infra_model")
-        st.text_input("DB Engine", key="db_engine")
-        st.text_area("Dữ liệu nghiệp vụ chính", key="main_business_data")
-        st.selectbox("Có PII?", ["Có", "Không"], key="pii")
-        st.selectbox("Cung cấp BI/AI?", ["Có", "Không"], key="provide_bi_ai")
-        st.multiselect("Phương thức tích hợp", ["API", "File", "ESB", "Message Queue"], key="integration_method")
-        st.text_area("Khuyến nghị", key="recommendation")
-        st.selectbox("Mức ưu tiên", ["Cao", "Trung bình", "Thấp"], key="priority")
-        st.text_input("Cập nhật bởi", key="updated_by")
-
-    with col2:
-        st.subheader("📊 Báo cáo tổng hợp")
-        report_html = build_report_html(collect_form_data())
-        st.markdown(report_html, unsafe_allow_html=True)
+    Load payload JSON -> st.session_state để prefill form.
+    Payload cấu trúc { "A1": {...}, "A2": {...}, ... }
+    """
+    # Flatten payload into "A1.xxx" keys
+    for section, section_obj in payload.items():
+        if isinstance(section_obj, dict):
+            for field, value in section_obj.items():
+                st.session_state[f"{section}.{field}"] = value
+        else:
+            st.session_state[str(section)] = section_obj
 
 
-if __name__ == "__main__":
-    main()
+def get_form_payload() -> Dict[str, Dict[str, Any]]:
+    """
+    Gom toàn bộ dữ liệu từ st.session_state theo format payload:
+    {
+      "A1": {...},
+      "A2": {...},
+      ...
+      "G":  {...}
+    }
+    """
+    payload: Dict[str, Dict[str, Any]] = {}
+    for key, value in st.session_state.items():
+        # chỉ lấy key dạng "A1.xxx"...
+        if "." not in key:
+            continue
+        section, field = key.split(".", 1)
+        if section[0] not in list("ABCDEFG"):
+            continue
+        payload.setdefault(section, {})
+        payload[section][field] = value
+    return payload
+
+
+# ----------------------------
+# UI Sections A-G
+# ----------------------------
+def ui_section_A():
+    st.subheader("A. THÔNG TIN TỔNG QUAN, CHUNG")
+
+    st.markdown("### A1. Thông tin định danh hệ thống")
+    system_name = st.text_input("Tên hệ thống/phần mềm", key="A1.system_name")
+    system_code = st.text_input("Mã hệ thống (System Code)", key="A1.system_code")
+
+    business_group = st.selectbox(
+        "Nhóm nghiệp vụ",
+        [
+            "Khai thác bay",
+            "Bán – Thương mại",
+            "Khách hàng",
+            "Bảo dưỡng",
+            "Tài chính",
+            "Nhân sự",
+            "An toàn – An ninh",
+            "Khác",
+        ],
+        key="A1.business_group",
+    )
+    st.text_input("Đơn vị sở hữu nghiệp vụ (Business Owner)", key="A1.business_owner")
+    st.text_input("Đơn vị quản lý CNTT (IT Owner)", key="A1.it_owner")
+    st.text_input("Nhà cung cấp / Đối tác", key="A1.vendor")
+
+    st.multiselect("Loại hệ thống", ["COTS", "SaaS", "In-house", "Outsource", "Legacy"], key="A1.loai_he_thong")
+    st.multiselect("Vai trò trong chuỗi giá trị hàng không", ["Core", "Support", "Analytics", "Compliance"], key="A1.vai_tro")
+
+    st.markdown("### A2. Mục tiêu & phạm vi")
+    st.text_area("Mục tiêu nghiệp vụ chính", key="A2.muc_tieu")
+    st.text_area("Phạm vi chức năng", key="A2.pham_vi")
+    st.text_input("Đối tượng người dùng", key="A2.doi_tuong")
+    st.number_input("Số lượng user (hiện tại)", min_value=0, step=1, key="A2.users_now")
+    st.number_input("Số lượng user (dự kiến 3–5 năm)", min_value=0, step=1, key="A2.users_future")
+    st.multiselect("Khu vực sử dụng", ["Nội địa", "Quốc tế", "Toàn mạng"], key="A2.khu_vuc")
+
+    st.markdown("### A3. Tình trạng & vòng đời")
+    st.number_input("Năm triển khai", min_value=1970, max_value=2100, step=1, key="A3.nam_trien_khai")
+    st.selectbox("Tình trạng hiện tại", ["Đang vận hành", "Nâng cấp", "Thay thế", "Dừng"], key="A3.tinh_trang")
+    st.slider("Đánh giá mức độ đáp ứng nghiệp vụ (1–5)", 1, 5, 3, key="A3.dap_ung")
+    st.selectbox("Kế hoạch 3–5 năm", ["Giữ nguyên", "Nâng cấp", "Thay thế", "Hợp nhất"], key="A3.ke_hoach_3_5_nam")
+
+    return system_code, system_name, business_group
+
+
+def ui_section_B():
+    st.subheader("B. THÔNG TIN VỀ HẠ TẦNG (INFRASTRUCTURE)")
+
+    st.markdown("### B1. Mô hình triển khai")
+    st.selectbox("Mô hình hạ tầng", ["On-Prem", "Private Cloud", "Public Cloud", "Hybrid"], key="B1.mo_hinh_ha_tang")
+    st.text_input("Vị trí DC/Cloud Region", key="B1.vi_tri")
+    st.text_input("Nhà cung cấp hạ tầng (AWS/Azure/GCP/IDC…)", key="B1.nha_cung_cap")
+
+    st.markdown("### B2. Tài nguyên hạ tầng")
+    st.text_input("Máy chủ (VM/Physical)", key="B2.may_chu")
+    st.text_input("Hệ điều hành", key="B2.he_dieu_hanh")
+    st.text_input("CPU / RAM / Storage", key="B2.cpu_ram_storage")
+    st.text_input("Database Engine", key="B2.db_engine")
+    st.text_input("Middleware", key="B2.middleware")
+    st.text_input("Network (LAN/WAN/MPLS/VPN)", key="B2.network")
+
+    st.markdown("### B3. Tính sẵn sàng & an toàn")
+    st.text_input("SLA (% uptime)", key="B3.sla")
+    st.selectbox("HA/DR", ["Active-Active", "Active-Passive", "None"], key="B3.ha_dr")
+    st.text_input("RPO", key="B3.rpo")
+    st.text_input("RTO", key="B3.rto")
+    st.selectbox("Sao lưu dữ liệu", ["Hàng ngày", "Thời gian thực"], key="B3.sao_luu")
+    st.multiselect("Tuân thủ tiêu chuẩn", ["ISO 27001", "PCI DSS", "ICAO", "IATA", "An ninh HK"], key="B3.tuan_thu")
+
+
+def ui_section_C():
+    st.subheader("C. THÔNG TIN VỀ DỮ LIỆU (DATA)")
+
+    st.markdown("### C1. Loại dữ liệu")
+    st.text_area("Dữ liệu nghiệp vụ chính", key="C1.du_lieu_nghiep_vu")
+    st.selectbox("Dữ liệu cá nhân (PII)", ["Có", "Không"], key="C1.pii")
+    st.text_input("Dữ liệu nhạy cảm / an ninh hàng không", key="C1.nhay_cam")
+    st.text_input("Dữ liệu tài chính / thanh toán", key="C1.tai_chinh")
+
+    st.markdown("### C2. Quản lý & chất lượng dữ liệu")
+    st.text_input("Nguồn dữ liệu (Source of Truth)", key="C2.source_of_truth")
+    st.selectbox("Định dạng dữ liệu", ["Structured", "Semi", "Unstructured"], key="C2.dinh_dang")
+    st.text_input("Dung lượng dữ liệu (hiện tại / tăng trưởng năm)", key="C2.dung_luong")
+    st.text_input("Chính sách lưu trữ & xóa dữ liệu", key="C2.retention")
+    st.multiselect("Chất lượng dữ liệu", ["Đầy đủ", "Chính xác", "Kịp thời"], key="C2.quality")
+
+    st.markdown("### C3. Khai thác & phân tích")
+    st.selectbox("Có cung cấp dữ liệu cho BI/AI không?", ["Có", "Không"], key="C3.bi_ai")
+    st.text_input("Kết nối Data Warehouse / Data Lake", key="C3.dwh_datalake")
+    st.text_input("Tần suất đồng bộ dữ liệu", key="C3.tan_suat")
+    st.selectbox("Dữ liệu thời gian thực (Real-time)", ["Có", "Không"], key="C3.realtime")
+
+
+def ui_section_D():
+    st.subheader("D. THÔNG TIN VỀ CÔNG NGHỆ TÍCH HỢP / CHIA SẺ")
+
+    st.markdown("### D1. Tích hợp hệ thống")
+    st.text_area("Các hệ thống liên quan (PSS, DCS, MRO, CRM, ERP, Contact Center…)", key="D1.he_thong_lien_quan")
+    st.selectbox("Vai trò", ["Gửi", "Nhận", "Hai chiều"], key="D1.vai_tro")
+    st.multiselect("Hình thức tích hợp", ["API", "ESB", "Message Queue", "File", "Manual"], key="D1.hinh_thuc")
+
+    st.markdown("### D2. Chuẩn & giao thức")
+    st.multiselect("Chuẩn dữ liệu", ["IATA NDC", "AIDX", "EDIFACT", "XML", "JSON"], key="D2.chuan_du_lieu")
+    st.multiselect("Giao thức", ["REST", "SOAP", "MQ", "SFTP"], key="D2.giao_thuc")
+    st.selectbox("Tần suất tích hợp", ["Real-time", "Near real-time", "Batch"], key="D2.tan_suat")
+
+    st.markdown("### D3. Quản trị tích hợp")
+    st.selectbox("Có API Gateway không?", ["Có", "Không"], key="D3.api_gateway")
+    st.selectbox("Có logging / monitoring không?", ["Có", "Không"], key="D3.logging_monitoring")
+    st.text_input("Quản lý version API", key="D3.versioning")
+    st.selectbox("Mức độ phụ thuộc hệ thống khác", ["Low", "Medium", "High"], key="D3.phu_thuoc")
+
+
+def ui_section_E():
+    st.subheader("E. THÔNG TIN AN TOÀN – TUÂN THỦ (KHUYẾN NGHỊ)")
+
+    st.multiselect("Phân quyền truy cập", ["RBAC", "ABAC", "Khác"], key="E.phan_quyen")
+    st.multiselect("Xác thực", ["SSO", "MFA"], key="E.xac_thuc")
+    st.multiselect("Mã hóa dữ liệu", ["At-rest", "In-transit"], key="E.ma_hoa")
+
+    st.multiselect(
+        "Tuân thủ pháp lý",
+        ["GDPR", "Luật ATTT VN", "ICAO Annex 17", "Khác"],
+        key="
