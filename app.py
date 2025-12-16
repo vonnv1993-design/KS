@@ -6,7 +6,7 @@ from datetime import datetime
 # CONFIG
 # ======================
 st.set_page_config(
-    page_title="Vietnam Airlines | Khảo sát CNTT",
+    page_title="Vietnam Airlines | IT Survey",
     layout="wide"
 )
 
@@ -27,30 +27,137 @@ if "form" not in st.session_state:
 f = st.session_state.form
 
 # ======================
-# BRAND STYLE – VNA
+# DARK MODE – VNA BRAND
 # ======================
 st.markdown("""
 <style>
-body {background-color:#F7F9FC;}
-header {visibility:hidden;}
-.block-container {padding-top:1.5rem;}
+html, body {
+    background-color: #0B1220;
+    color: #E5E7EB;
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+header {visibility: hidden;}
+.block-container {
+    padding: 1.4rem 2rem;
+}
+
+/* ===== HEADER ===== */
+.vna-header {
+    background: linear-gradient(90deg,#005EB8,#003A75);
+    padding: 24px 28px;
+    border-radius: 18px;
+    margin-bottom: 28px;
+}
+.vna-header h2 {
+    margin: 0;
+    color: white;
+}
+.vna-header p {
+    margin: 6px 0 0;
+    color: #E5E7EB;
+    opacity: 0.9;
+}
+
+/* ===== CARDS ===== */
 .vna-card {
-    background:white;
-    border-radius:14px;
-    padding:22px;
-    border:1px solid #E5EAF1;
-    margin-bottom:22px;
+    background: #111A2E;
+    border-radius: 16px;
+    padding: 22px 24px;
+    border: 1px solid #1F2A44;
+    margin-bottom: 26px;
+}
+.vna-card:hover {
+    border-color: #005EB8;
+}
+
+/* ===== INPUTS ===== */
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox select {
+    background-color: #0B1220 !important;
+    color: #E5E7EB !important;
+    border-radius: 10px !important;
+    border: 1px solid #1F2A44 !important;
+    padding: 10px 12px !important;
+}
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #005EB8 !important;
+    box-shadow: 0 0 0 2px rgba(0,94,184,0.25);
+}
+
+/* ===== LABELS ===== */
+label {
+    color: #E5E7EB !important;
+}
+
+/* ===== RADIO / CHECKBOX ===== */
+.stRadio label,
+.stCheckbox label {
+    font-size: 0.95rem;
+}
+
+/* ===== SLIDER ===== */
+.stSlider > div {
+    color: #F5C400;
+}
+
+/* ===== BUTTONS ===== */
+.stButton > button {
+    background-color: #005EB8;
+    color: white;
+    border-radius: 12px;
+    padding: 10px 24px;
+    border: none;
+    font-weight: 600;
+}
+.stButton > button:hover {
+    background-color: #004A94;
+}
+.stButton.secondary > button {
+    background-color: #F5C400;
+    color: #0B1220;
+}
+
+/* ===== TABS ===== */
+.stTabs [role="tab"] {
+    padding: 14px 20px;
+    font-weight: 600;
+    border-radius: 14px;
+    background: #111A2E;
+    margin-right: 8px;
+    color: #9CA3AF;
 }
 .stTabs [aria-selected="true"] {
-    background-color:#005EB8;
-    color:white;
-    border-radius:8px;
+    background-color: #005EB8;
+    color: white;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 900px) {
+    .block-container {
+        padding: 1rem;
+    }
+    .vna-card {
+        padding: 18px;
+    }
+    .stTabs [role="tab"] {
+        padding: 10px 14px;
+        font-size: 0.9rem;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## ✈️ VIETNAM AIRLINES – KHẢO SÁT QUY HOẠCH HỆ THỐNG CNTT")
-st.divider()
+# ======================
+# HEADER
+# ======================
+st.markdown("""
+<div class="vna-header">
+    <h2>✈️ VIETNAM AIRLINES</h2>
+    <p>Khảo sát Quy hoạch Hệ thống CNTT & Kiến trúc Doanh nghiệp</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ======================
 # TABS
@@ -72,51 +179,23 @@ with tabA:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
     st.subheader("A1. Thông tin định danh")
 
-    f["A"]["A1"]["system_name"] = st.text_input("Tên hệ thống")
-    f["A"]["A1"]["system_code"] = st.text_input("Mã hệ thống")
+    col1, col2 = st.columns(2)
+    with col1:
+        f["A"]["A1"]["system_name"] = st.text_input("Tên hệ thống")
+        f["A"]["A1"]["system_code"] = st.text_input("Mã hệ thống")
+        f["A"]["A1"]["business_owner"] = st.text_input("Đơn vị nghiệp vụ")
+
+    with col2:
+        f["A"]["A1"]["it_owner"] = st.text_input("Đơn vị CNTT")
+        f["A"]["A1"]["vendor"] = st.text_input("Nhà cung cấp")
+        f["A"]["A1"]["system_type"] = st.multiselect(
+            "Loại hệ thống",
+            ["COTS","SaaS","In-house","Outsource","Legacy"]
+        )
+
     f["A"]["A1"]["business_group"] = st.multiselect(
         "Nhóm nghiệp vụ",
         ["Khai thác bay","Thương mại","Dịch vụ","Kỹ thuật","Tài chính","Nhân sự","An toàn – An ninh","Quản lý chung"]
-    )
-    f["A"]["A1"]["business_owner"] = st.text_input("Đơn vị sở hữu nghiệp vụ")
-    f["A"]["A1"]["it_owner"] = st.text_input("Đơn vị quản lý CNTT")
-    f["A"]["A1"]["vendor"] = st.text_input("Nhà cung cấp / Đối tác")
-    f["A"]["A1"]["system_type"] = st.multiselect(
-        "Loại hệ thống",
-        ["COTS","SaaS","In-house","Outsource","Legacy"]
-    )
-    f["A"]["A1"]["value_chain_role"] = st.multiselect(
-        "Vai trò chuỗi giá trị",
-        ["Core","Support","Analytics","Compliance"]
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("A2. Mục tiêu & phạm vi")
-    f["A"]["A2"]["business_goal"] = st.text_area("Mục tiêu nghiệp vụ")
-    f["A"]["A2"]["scope"] = st.text_area("Phạm vi chức năng")
-    f["A"]["A2"]["users"] = st.text_input("Đối tượng người dùng")
-    f["A"]["A2"]["user_scale"] = st.multiselect(
-        "Quy mô người dùng",
-        ["<10","10–50","50–100",">100"]
-    )
-    f["A"]["A2"]["region"] = st.multiselect(
-        "Khu vực sử dụng",
-        ["Nội địa","Quốc tế","Toàn mạng"]
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("A3. Tình trạng & vòng đời")
-    f["A"]["A3"]["deploy_year"] = st.selectbox("Năm triển khai", list(range(2000,2051)))
-    f["A"]["A3"]["status"] = st.radio(
-        "Tình trạng hiện tại",
-        ["Đang vận hành","Nâng cấp","Thay thế","Dừng"]
-    )
-    f["A"]["A3"]["business_fit"] = st.slider("Mức độ đáp ứng nghiệp vụ",1,5)
-    f["A"]["A3"]["plan_3_5y"] = st.multiselect(
-        "Kế hoạch 3–5 năm",
-        ["Giữ nguyên","Nâng cấp","Thay thế","Hợp nhất"]
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -125,44 +204,15 @@ with tabA:
 # ======================
 with tabB:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("B1. Mô hình triển khai")
     f["B"]["B1"]["infra_model"] = st.multiselect(
         "Mô hình hạ tầng",
         ["On-Prem","Private Cloud","Public Cloud","Hybrid"]
     )
-    f["B"]["B1"]["dc_region"] = st.text_input("Vị trí DC / Cloud Region")
     f["B"]["B1"]["provider"] = st.multiselect(
         "Nhà cung cấp",
         ["AWS","Azure","Viettel","VNPT","FPT","Khác"]
     )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("B2. Tài nguyên hạ tầng")
-    f["B"]["B2"]["server_type"] = st.radio("Máy chủ",["VM","Physical"])
-    f["B"]["B2"]["os"] = st.text_input("Hệ điều hành")
-    f["B"]["B2"]["resource"] = st.text_input("CPU / RAM / Storage")
-    f["B"]["B2"]["database"] = st.text_input("Database Engine")
-    f["B"]["B2"]["middleware"] = st.text_input("Middleware")
-    f["B"]["B2"]["network"] = st.text_input("Network")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("B3. Sẵn sàng & an toàn")
     f["B"]["B3"]["sla"] = st.slider("SLA (%)",90,100)
-    f["B"]["B3"]["ha_dr"] = st.multiselect(
-        "HA / DR",
-        ["Active-Active","Active-Passive","None"]
-    )
-    f["B"]["B3"]["rpo_rto"] = st.text_input("RPO / RTO")
-    f["B"]["B3"]["backup"] = st.multiselect(
-        "Sao lưu",
-        ["Hàng ngày","Thời gian thực"]
-    )
-    f["B"]["B3"]["standards"] = st.multiselect(
-        "Tuân thủ",
-        ["ISO 27001","PCI DSS","ICAO","IATA"]
-    )
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
@@ -170,35 +220,9 @@ with tabB:
 # ======================
 with tabC:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("C1. Loại dữ liệu")
-    f["C"]["C1"]["pii"] = st.radio("Dữ liệu cá nhân (PII)",["Có","Không"])
-    f["C"]["C1"]["sensitive"] = st.radio("Dữ liệu nhạy cảm",["Có","Không"])
-    f["C"]["C1"]["finance"] = st.radio("Dữ liệu tài chính",["Có","Không"])
-    f["C"]["C1"]["cross_border"] = st.radio("Dữ liệu ra nước ngoài",["Có","Không"])
-    f["C"]["C1"]["core_data"] = st.text_area("Dữ liệu nghiệp vụ trọng yếu")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("C2. Quản lý & chất lượng")
-    f["C"]["C2"]["source"] = st.text_input("Source of Truth")
-    f["C"]["C2"]["format"] = st.multiselect(
-        "Định dạng",
-        ["Structured","Semi-structured","Unstructured"]
-    )
-    f["C"]["C2"]["volume"] = st.text_input("Dung lượng / tăng trưởng")
-    f["C"]["C2"]["policy"] = st.text_input("Chính sách lưu trữ & xoá")
-    f["C"]["C2"]["quality"] = st.multiselect(
-        "Chất lượng dữ liệu",
-        ["Đầy đủ","Chính xác","Kịp thời"]
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("C3. Khai thác & phân tích")
-    f["C"]["C3"]["bi_ai"] = st.radio("Kết nối BI / AI",["Có","Không"])
-    f["C"]["C3"]["dw_dl"] = st.radio("Kết nối DW / DL",["Có","Không"])
-    f["C"]["C3"]["sync"] = st.text_input("Tần suất đồng bộ")
-    f["C"]["C3"]["realtime"] = st.radio("Dữ liệu realtime",["Có","Không"])
+    f["C"]["C1"]["pii"] = st.radio("Dữ liệu cá nhân (PII)",["Có","Không"],horizontal=True)
+    f["C"]["C1"]["sensitive"] = st.radio("Dữ liệu nhạy cảm",["Có","Không"],horizontal=True)
+    f["C"]["C3"]["bi_ai"] = st.radio("Cung cấp cho BI/AI",["Có","Không"],horizontal=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
@@ -206,34 +230,11 @@ with tabC:
 # ======================
 with tabD:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("D1. Tích hợp hệ thống")
     f["D"]["D1"]["systems"] = st.text_area(
         "Danh sách hệ thống tích hợp",
-        placeholder="STT | Tên | Vai trò | Hình thức"
+        placeholder="PSS | Hai chiều | API"
     )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("D2. Chuẩn & giao thức")
-    f["D"]["D2"]["data_standard"] = st.multiselect(
-        "Chuẩn dữ liệu",
-        ["IATA NDC","AIDX","EDIFACT","XML","JSON","Khác"]
-    )
-    f["D"]["D2"]["protocol"] = st.multiselect(
-        "Giao thức",
-        ["REST","SOAP","MQ","SFTP"]
-    )
-    f["D"]["D2"]["frequency"] = st.radio(
-        "Tần suất",
-        ["Real-time","Near real-time","Batch"]
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("D3. Quản trị tích hợp")
-    f["D"]["D3"]["api_gateway"] = st.radio("API Gateway",["Có","Không"])
-    f["D"]["D3"]["logging"] = st.radio("Logging / Monitoring",["Có","Không"])
-    f["D"]["D3"]["versioning"] = st.radio("Quản lý version API",["Có","Không"])
+    f["D"]["D3"]["api_gateway"] = st.radio("API Gateway",["Có","Không"],horizontal=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
@@ -241,12 +242,10 @@ with tabD:
 # ======================
 with tabE:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["E"]["rbac"] = st.text_input("Phân quyền (RBAC)")
     f["E"]["auth"] = st.multiselect("Xác thực",["SSO","MFA","Khác"])
-    f["E"]["encryption"] = st.text_input("Mã hoá dữ liệu (At-rest / In-transit)")
     f["E"]["legal"] = st.multiselect(
         "Tuân thủ pháp lý",
-        ["GDPR","Luật ATTT VN","ICAO Annex 17","Quy chế ANTT TCTHK"]
+        ["Luật ATTT VN","GDPR","ICAO Annex 17","Quy chế ANTT TCTHK"]
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -256,26 +255,26 @@ with tabE:
 with tabF:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
     f["F"]["strategy_fit"] = st.slider("Phù hợp chiến lược số",1,5)
-    f["F"]["cloud_ai_ready"] = st.text_input("Sẵn sàng Cloud / AI")
-    f["F"]["scalability"] = st.text_input("Khả năng mở rộng")
     f["F"]["proposal"] = st.radio(
-        "Đề xuất",
-        ["Giữ nguyên","Nâng cấp","Hợp nhất","Thay thế"]
+        "Định hướng",
+        ["Giữ nguyên","Nâng cấp","Hợp nhất","Thay thế"],
+        horizontal=True
     )
     f["F"]["priority"] = st.radio(
-        "Độ ưu tiên",
-        ["High","Medium","Low"]
+        "Ưu tiên",
+        ["High","Medium","Low"],
+        horizontal=True
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
-# TAB G
+# TAB G – SAVE
 # ======================
 with tabG:
     st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
     f["G"]["updated_by"] = st.text_input("Người cập nhật")
     f["G"]["updated_date"] = datetime.now().strftime("%d/%m/%Y")
-    f["G"]["version"] = st.text_input("Phiên bản form","v1.0")
+    f["G"]["version"] = st.text_input("Phiên bản","v1.0")
     f["G"]["note"] = st.text_area("Ghi chú")
 
     col1, col2 = st.columns(2)
