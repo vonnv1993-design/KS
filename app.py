@@ -1,182 +1,223 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
+import json, os
 from datetime import datetime
 from io import BytesIO
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import A4
 
-# ======================
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, PageBreak
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.enums import TA_CENTER
+
+# =========================
 # CONFIG
-# ======================
+# =========================
 st.set_page_config(
     page_title="IT Application Survey – Vietnam Airlines",
     layout="wide"
 )
 
 DATA_DIR = "data/json"
-EXCEL_DIR = "data/excel"
 os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(EXCEL_DIR, exist_ok=True)
 
-# ======================
-# BRAND STYLE
-# ======================
+# =========================
+# MODERN UI – BRAND STYLE
+# =========================
 st.markdown("""
 <style>
 body {
-    background-color: #0B2A4A;
+    background: linear-gradient(120deg,#F4F7FB,#FFFFFF);
 }
-section[data-testid="stSidebar"] {
-    background-color: #003A8F;
-}
+
 h1, h2, h3 {
     color: #005EB8;
+    font-weight: 700;
 }
+
+.block-container {
+    padding-top: 1.5rem;
+}
+
+div[data-testid="stTab"] {
+    font-weight: 600;
+}
+
 div.stButton > button {
-    background-color: #FFC72C;
-    color: black;
-    border-radius: 6px;
-    font-weight: bold;
+    background: linear-gradient(90deg,#FFC72C,#FFB000);
+    color: #002B5C;
+    border-radius: 10px;
+    font-weight: 700;
+    padding: 0.5rem 1.2rem;
+}
+
+div.stButton > button:hover {
+    background: linear-gradient(90deg,#FFD966,#FFC72C);
+}
+
+.card {
+    background: white;
+    padding: 1.2rem;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("✈️ KHẢO SÁT QUY HOẠCH HỆ THỐNG CNTT – VIETNAM AIRLINES")
+st.caption("Digital IT Landscape Survey | Enterprise Architecture & IT Master Planning")
 
-# ======================
-# SESSION INIT
-# ======================
-if "form_data" not in st.session_state:
-    st.session_state.form_data = {}
-
-# ======================
+# =========================
 # TABS
-# ======================
-tabA, tabB, tabC, tabD, tabE, tabF, tabG = st.tabs(
-    ["A. Thông tin chung", "B. Hạ tầng", "C. Dữ liệu",
-     "D. Tích hợp", "E. An toàn", "F. Định hướng", "G. Quản lý"]
-)
+# =========================
+tabs = st.tabs([
+    "A. Thông tin chung",
+    "B. Hạ tầng",
+    "C. Dữ liệu",
+    "D. Tích hợp",
+    "E. An toàn",
+    "F. Định hướng",
+    "G. Quản lý"
+])
 
-# ======================
+# =========================
 # TAB A
-# ======================
-with tabA:
-    st.subheader("A. THÔNG TIN CHUNG")
-    system_name = st.text_input("Tên hệ thống")
-    system_code = st.text_input("Mã hệ thống")
+# =========================
+with tabs[0]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    system_name = st.text_input("Tên hệ thống / phần mềm")
+    system_code = st.text_input("Mã hệ thống (System Code)")
     business_group = st.multiselect(
         "Nhóm nghiệp vụ",
-        ["Khai thác bay", "Thương mại", "Dịch vụ", "Kỹ thuật",
-         "Tài chính", "Nhân sự", "An toàn – An ninh", "Quản lý chung"]
+        ["Khai thác bay","Thương mại","Dịch vụ","Kỹ thuật",
+         "Tài chính","Nhân sự","An toàn – An ninh","Quản lý chung"]
     )
     business_owner = st.text_input("Business Owner")
     it_owner = st.text_input("IT Owner")
-    vendor = st.text_input("Nhà cung cấp")
+    vendor = st.text_input("Nhà cung cấp / Đối tác")
     system_type = st.multiselect(
         "Loại hệ thống",
-        ["COTS", "SaaS", "In-house", "Outsource", "Legacy"]
+        ["COTS","SaaS","In-house","Outsource","Legacy"]
     )
     value_chain = st.multiselect(
         "Vai trò chuỗi giá trị",
-        ["Core", "Support", "Analytics", "Compliance"]
+        ["Core","Support","Analytics","Compliance"]
     )
-    deploy_year = st.selectbox("Năm triển khai", range(2000, 2051))
-    status = st.radio("Tình trạng", ["Đang vận hành", "Nâng cấp", "Thay thế", "Dừng"])
+    deploy_year = st.selectbox("Năm triển khai", range(2000,2051))
+    status = st.radio(
+        "Tình trạng hiện tại",
+        ["Đang vận hành","Nâng cấp","Thay thế","Dừng"],
+        horizontal=True
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB B
-# ======================
-with tabB:
-    st.subheader("B. HẠ TẦNG")
+# =========================
+with tabs[1]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     infra_model = st.multiselect(
-        "Mô hình triển khai",
-        ["On-Prem", "Private Cloud", "Public Cloud", "Hybrid"]
+        "Mô hình hạ tầng",
+        ["On-Prem","Private Cloud","Public Cloud","Hybrid"]
     )
     dc_region = st.text_input("DC / Cloud Region")
     infra_provider = st.multiselect(
-        "Nhà cung cấp",
-        ["AWS", "Azure", "Viettel", "VNPT", "FPT", "Khác"]
+        "Nhà cung cấp hạ tầng",
+        ["AWS","Azure","Viettel","VNPT","FPT","Khác"]
     )
-    server_type = st.radio("Máy chủ", ["VM", "Physical"])
+    server_type = st.radio("Máy chủ",["VM","Physical"],horizontal=True)
     os_name = st.text_input("Hệ điều hành")
     resource = st.text_input("CPU / RAM / Storage")
-    sla = st.slider("SLA (%)", 90, 100)
-    ha_dr = st.multiselect("HA / DR", ["Active-Active", "Active-Passive", "None"])
+    sla = st.slider("SLA (%)",90,100)
+    ha_dr = st.multiselect(
+        "HA / DR",
+        ["Active-Active","Active-Passive","None"]
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB C
-# ======================
-with tabC:
-    st.subheader("C. DỮ LIỆU")
-    pii = st.radio("PII", ["Có", "Không"])
-    sensitive = st.radio("Dữ liệu nhạy cảm", ["Có", "Không"])
-    finance = st.radio("Dữ liệu tài chính", ["Có", "Không"])
-    cross_border = st.radio("Dữ liệu ra nước ngoài", ["Có", "Không"])
+# =========================
+with tabs[2]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    pii = st.radio("Dữ liệu cá nhân (PII)",["Có","Không"],horizontal=True)
+    sensitive = st.radio("Dữ liệu nhạy cảm",["Có","Không"],horizontal=True)
+    finance = st.radio("Dữ liệu tài chính",["Có","Không"],horizontal=True)
+    cross_border = st.radio("Dữ liệu ra nước ngoài",["Có","Không"],horizontal=True)
     data_source = st.text_input("Source of Truth")
     data_quality = st.multiselect(
         "Chất lượng dữ liệu",
-        ["Đầy đủ", "Chính xác", "Kịp thời"]
+        ["Đầy đủ","Chính xác","Kịp thời"]
     )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB D
-# ======================
-with tabD:
-    st.subheader("D. TÍCH HỢP")
+# =========================
+with tabs[3]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     integration_desc = st.text_area(
         "Danh sách hệ thống tích hợp",
         placeholder="PSS | Hai chiều | API"
     )
     data_standard = st.multiselect(
         "Chuẩn dữ liệu",
-        ["IATA NDC", "AIDX", "EDIFACT", "XML", "JSON"]
+        ["IATA NDC","AIDX","EDIFACT","XML","JSON"]
     )
     protocol = st.multiselect(
         "Giao thức",
-        ["REST", "SOAP", "MQ", "SFTP"]
+        ["REST","SOAP","MQ","SFTP"]
     )
-    api_gateway = st.radio("API Gateway", ["Có", "Không"])
-    logging = st.radio("Logging / Monitoring", ["Có", "Không"])
+    api_gateway = st.radio("API Gateway",["Có","Không"],horizontal=True)
+    logging = st.radio("Logging / Monitoring",["Có","Không"],horizontal=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB E
-# ======================
-with tabE:
-    st.subheader("E. AN TOÀN – TUÂN THỦ")
-    rbac = st.text_input("RBAC")
-    auth = st.multiselect("Xác thực", ["SSO", "MFA", "Khác"])
+# =========================
+with tabs[4]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    rbac = st.text_input("Phân quyền truy cập (RBAC)")
+    auth = st.multiselect("Xác thực",["SSO","MFA","Khác"])
     legal = st.multiselect(
-        "Tuân thủ",
-        ["GDPR", "Luật ATTT VN", "ICAO Annex 17", "Quy chế ANTT TCTHK"]
+        "Tuân thủ pháp lý",
+        ["GDPR","Luật ATTT VN","ICAO Annex 17","Quy chế ANTT TCTHK"]
     )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB F
-# ======================
-with tabF:
-    st.subheader("F. ĐỊNH HƯỚNG")
-    strategy_fit = st.slider("Phù hợp chiến lược (1–5)", 1, 5)
+# =========================
+with tabs[5]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    strategy_fit = st.slider("Phù hợp chiến lược số (1–5)",1,5)
     proposal = st.radio(
-        "Đề xuất",
-        ["Giữ nguyên", "Nâng cấp", "Hợp nhất", "Thay thế"]
+        "Đề xuất quy hoạch",
+        ["Giữ nguyên","Nâng cấp","Hợp nhất","Thay thế"],
+        horizontal=True
     )
-    priority = st.radio("Ưu tiên", ["High", "Medium", "Low"])
+    priority = st.radio(
+        "Độ ưu tiên",
+        ["High","Medium","Low"],
+        horizontal=True
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
+# =========================
 # TAB G
-# ======================
-with tabG:
-    st.subheader("G. QUẢN LÝ")
+# =========================
+with tabs[6]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     updated_by = st.text_input("Người cập nhật")
-    version = st.text_input("Phiên bản", "v1.0")
+    version = st.text_input("Phiên bản form","v1.0")
     note = st.text_area("Ghi chú")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ======================
-# SAVE DATA
-# ======================
+# =========================
+# DATA OBJECT
+# =========================
 form_data = {
     "system_name": system_name,
     "system_code": system_code,
@@ -206,35 +247,94 @@ form_data = {
     "note": note
 }
 
-# ======================
-# ACTION BUTTONS
-# ======================
-st.divider()
-col1, col2, col3 = st.columns(3)
+# =========================
+# PDF EXPORT
+# =========================
+def export_pdf(data: dict):
+    buffer = BytesIO()
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="TitleCenter",
+        alignment=TA_CENTER,
+        fontSize=16,
+        spaceAfter=12
+    ))
 
-with col1:
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+
+    def section(title, items):
+        elements.append(Paragraph(title, styles["Heading2"]))
+        table = Table(
+            [[k, str(v)] for k, v in items],
+            colWidths=[180, 340]
+        )
+        elements.append(table)
+        elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph(
+        "BÁO CÁO KHẢO SÁT HỆ THỐNG CNTT – VIETNAM AIRLINES",
+        styles["TitleCenter"]
+    ))
+
+    section("A. THÔNG TIN CHUNG", [
+        ("Tên hệ thống", data["system_name"]),
+        ("Mã hệ thống", data["system_code"]),
+        ("Nhóm nghiệp vụ", ", ".join(data["business_group"])),
+        ("Business Owner", data["business_owner"]),
+        ("IT Owner", data["it_owner"]),
+        ("Nhà cung cấp", data["vendor"]),
+    ])
+
+    elements.append(PageBreak())
+
+    section("B. HẠ TẦNG", [
+        ("Mô hình", ", ".join(data["infra_model"])),
+        ("DC / Cloud", data["dc_region"]),
+        ("Nhà cung cấp", ", ".join(data["infra_provider"])),
+        ("SLA", f'{data["sla"]}%'),
+    ])
+
+    elements.append(PageBreak())
+
+    section("C. DỮ LIỆU & D. TÍCH HỢP", [
+        ("PII", data["pii"]),
+        ("Dữ liệu nhạy cảm", data["sensitive"]),
+        ("Tích hợp", data["integration"]),
+    ])
+
+    elements.append(PageBreak())
+
+    section("E–G. ĐỊNH HƯỚNG & QUẢN LÝ", [
+        ("Phù hợp chiến lược", data["strategy_fit"]),
+        ("Đề xuất", data["proposal"]),
+        ("Ưu tiên", data["priority"]),
+        ("Người cập nhật", data["updated_by"]),
+        ("Ngày cập nhật", data["updated_date"]),
+    ])
+
+    doc.build(elements)
+    return buffer.getvalue()
+
+# =========================
+# ACTIONS
+# =========================
+st.divider()
+c1, c2 = st.columns(2)
+
+with c1:
     if st.button("💾 Lưu JSON theo đơn vị"):
-        filename = f"{system_code or 'system'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(os.path.join(DATA_DIR, filename), "w", encoding="utf-8") as f:
+        name = system_code or "system"
+        fname = f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(os.path.join(DATA_DIR, fname), "w", encoding="utf-8") as f:
             json.dump(form_data, f, ensure_ascii=False, indent=2)
         st.success("Đã lưu JSON thành công")
 
-with col2:
-    if st.button("📊 Xuất Excel Master"):
-        files = [f for f in os.listdir(DATA_DIR) if f.endswith(".json")]
-        rows = []
-        for file in files:
-            with open(os.path.join(DATA_DIR, file), encoding="utf-8") as f:
-                rows.append(json.load(f))
-        df = pd.DataFrame(rows)
-        buffer = BytesIO()
-        df.to_excel(buffer, index=False)
-        st.download_button(
-            "⬇️ Tải Excel",
-            buffer.getvalue(),
-            "IT_Survey_Master.xlsx"
-        )
-
-with col3:
-    st.info("PDF A4 chuẩn in: dùng module riêng (next step)")
-
+with c2:
+    pdf_bytes = export_pdf(form_data)
+    st.download_button(
+        "📄 Xuất PDF A4 (4 trang)",
+        pdf_bytes,
+        file_name="IT_Survey_Vietnam_Airlines.pdf",
+        mime="application/pdf"
+    )
