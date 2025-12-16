@@ -7,15 +7,19 @@ import pandas as pd
 import streamlit as st
 
 
-# ----------------------------
+# =========================
 # Helpers
-# ----------------------------
+# =========================
 def now_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
+def required(value: str) -> bool:
+    return bool(value and str(value).strip())
+
+
 def flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
-    """Flatten nested dict for CSV export."""
+    """Flatten nested dict to 1-level dict for CSV export / Google Sheets row."""
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -28,20 +32,30 @@ def flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dic
     return dict(items)
 
 
-def required(value: str) -> bool:
-    return bool(value and str(value).strip())
+def build_record(form: Dict[str, Any]) -> Dict[str, Any]:
+    """Add system fields for tracking."""
+    record = {
+        "_meta": {
+            "record_id": str(uuid.uuid4()),
+            "created_at": now_iso(),
+            "app": "it-survey-streamlit",
+            "schema_version": "1.0",
+        },
+        "form": form,
+    }
+    return record
 
 
-# ----------------------------
-# Optional: Google Sheets 저장
-# ----------------------------
+# =========================
+# Optional: Google Sheets
+# =========================
 def save_to_gsheets(record: Dict[str, Any]) -> None:
     """
     Save a record to Google Sheets.
-    Requires:
-      - st.secrets["gcp_service_account"] (JSON dict)
+    Requirements in Streamlit secrets:
+      - st.secrets["gcp_service_account"] : service account json object
       - st.secrets["gsheets"]["spreadsheet_id"]
-      - st.secrets["gsheets"]["worksheet_name"] (optional, default 'data')
+      - st.secrets["gsheets"]["worksheet_name"] (optional; default 'data')
     """
     import gspread
     from google.oauth2.service_account import Credentials
@@ -60,23 +74,23 @@ def save_to_gsheets(record: Dict[str, Any]) -> None:
     try:
         ws = sh.worksheet(worksheet_name)
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=worksheet_name, rows=1000, cols=200)
+        ws = sh.add_worksheet(title=worksheet_name, rows=2000, cols=200)
 
     flat = flatten_dict(record)
 
-    # Ensure header exists
+    # If sheet empty -> create header row
     existing_headers = ws.row_values(1)
     if not existing_headers:
         ws.append_row(list(flat.keys()))
         ws.append_row(list(flat.values()))
         return
 
-    # If new keys appear, extend headers (simple strategy)
+    # If new keys appear -> extend header
     headers = existing_headers[:]
     changed = False
-    for key in flat.keys():
-        if key not in headers:
-            headers.append(key)
+    for k in flat.keys():
+        if k not in headers:
+            headers.append(k)
             changed = True
 
     if changed:
@@ -86,24 +100,25 @@ def save_to_gsheets(record: Dict[str, Any]) -> None:
     ws.append_row(row)
 
 
-# ----------------------------
+# =========================
 # UI
-# ----------------------------
+# =========================
 st.set_page_config(page_title="Khảo sát hệ thống CNTT", layout="wide")
 
 st.title("Tool số hóa form khảo sát hệ thống CNTT")
-st.caption("Streamlit app (deploy trên Streamlit Community Cloud). Có thể tải JSON/CSV, hoặc lưu Google Sheets (tuỳ chọn).")
+st.caption("Nhập theo các mục A→G. Có thể tải JSON/CSV hoặc lưu vào Google Sheets (khuyến nghị khi deploy Cloud).")
 
 with st.sidebar:
-    st.header("Thiết lập")
+    st.header("Thiết lập lưu dữ liệu")
     save_mode = st.radio(
         "Chế độ lưu",
-        options=["Chỉ tải về (JSON/CSV)", "Lưu Google Sheets (khuyến nghị trên Cloud)"],
+        options=["Chỉ tải về (JSON/CSV)", "Lưu Google Sheets"],
         index=0,
     )
-    st.divider()
-    st.write("Gợi ý: dùng **Google Sheets** để lưu bền vững khi deploy trên Streamlit Cloud.")
-
+    st.info(
+        "Trên Streamlit Cloud, lưu file vào máy chủ không bền vững. "
+        "Nếu muốn lưu tập trung, hãy chọn Google Sheets."
+    )
 
 tabs = st.tabs([
     "A. Tổng quan",
@@ -113,14 +128,18 @@ tabs = st.tabs([
     "E. An toàn – Tuân thủ",
     "F. Đánh giá & Định hướng",
     "G. Quản lý – Lưu trữ",
-    "Xuất / Lưu",
+    "Submit / Xuất / Lưu",
 ])
 
-# Use one big form to submit at once
+# Keep last submission in session
+if "last_record" not in st.session_state:
+    st.session_state.last_record = None
+
+
 with st.form("survey_form", clear_on_submit=False):
 
     # ----------------------------
-    # TAB A
+    # A. Tổng quan
     # ----------------------------
     with tabs[0]:
         st.subheader("A. THÔNG TIN TỔNG QUAN, CHUNG")
@@ -136,7 +155,6 @@ with st.form("survey_form", clear_on_submit=False):
                     "Khai thác bay", "Bán – Thương mại", "Khách hàng", "Bảo dưỡng",
                     "Tài chính", "Nhân sự", "An toàn – An ninh", "Khác"
                 ],
-                index=0,
             )
             business_owner = st.text_input("Đơn vị sở hữu nghiệp vụ (Business Owner)")
         with col2:
@@ -154,10 +172,10 @@ with st.form("survey_form", clear_on_submit=False):
         st.markdown("### A2. Mục tiêu & phạm vi")
         col1, col2 = st.columns(2)
         with col1:
-            business_goal = st.text_area("Mục tiêu nghiệp vụ chính", height=100)
-            functional_scope = st.text_area("Phạm vi chức năng", height=100)
+            business_goal = st.text_area("Mục tiêu nghiệp vụ chính", height=90)
+            functional_scope = st.text_area("Phạm vi chức năng", height=90)
         with col2:
-            user_audience = st.text_area("Đối tượng người dùng", height=100)
+            user_audience = st.text_area("Đối tượng người dùng", height=90)
             user_count_current = st.number_input("Số lượng user (hiện tại)", min_value=0, step=1)
             user_count_forecast = st.number_input("Số lượng user (dự kiến 3–5 năm)", min_value=0, step=1)
             usage_region = st.multiselect("Khu vực sử dụng", options=["Nội địa", "Quốc tế", "Toàn mạng"])
@@ -168,12 +186,12 @@ with st.form("survey_form", clear_on_submit=False):
             deployment_year = st.number_input("Năm triển khai", min_value=1980, max_value=2100, step=1, value=2020)
             current_status = st.radio("Tình trạng hiện tại", options=["Đang vận hành", "Nâng cấp", "Thay thế", "Dừng"])
         with col2:
-            business_fit_score = st.slider("Đánh giá mức độ đáp ứng nghiệp vụ (1–5)", min_value=1, max_value=5, value=3)
+            business_fit_score = st.slider("Đánh giá mức độ đáp ứng nghiệp vụ (1–5)", 1, 5, 3)
         with col3:
             plan_3_5y = st.radio("Kế hoạch 3–5 năm", options=["Giữ nguyên", "Nâng cấp", "Thay thế", "Hợp nhất"])
 
     # ----------------------------
-    # TAB B
+    # B. Hạ tầng
     # ----------------------------
     with tabs[1]:
         st.subheader("B. THÔNG TIN VỀ HẠ TẦNG (INFRASTRUCTURE)")
@@ -210,7 +228,7 @@ with st.form("survey_form", clear_on_submit=False):
             )
 
     # ----------------------------
-    # TAB C
+    # C. Dữ liệu
     # ----------------------------
     with tabs[2]:
         st.subheader("C. THÔNG TIN VỀ DỮ LIỆU (DATA)")
@@ -234,11 +252,11 @@ with st.form("survey_form", clear_on_submit=False):
         st.markdown("### C3. Khai thác & phân tích")
         bi_ai = st.radio("Có cung cấp dữ liệu cho BI/AI không?", options=["Có", "Không"])
         dwh_datalake = st.text_input("Kết nối Data Warehouse / Data Lake")
-        sync_frequency = st.text_input("Tần suất đồng bộ dữ liệu", placeholder="Ví dụ: 5 phút / hàng ngày / theo batch")
+        sync_frequency = st.text_input("Tần suất đồng bộ dữ liệu", placeholder="Ví dụ: 5 phút / hàng ngày / batch")
         realtime_data = st.radio("Dữ liệu thời gian thực (Real-time)", options=["Có", "Không"])
 
     # ----------------------------
-    # TAB D
+    # D. Tích hợp
     # ----------------------------
     with tabs[3]:
         st.subheader("D. THÔNG TIN VỀ CÔNG NGHỆ TÍCH HỢP / CHIA SẺ")
@@ -259,26 +277,24 @@ with st.form("survey_form", clear_on_submit=False):
         st.markdown("### D3. Quản trị tích hợp")
         api_gateway = st.radio("Có API Gateway không?", options=["Có", "Không"])
         logging_monitoring = st.radio("Có logging / monitoring không?", options=["Có", "Không"])
-        api_versioning = st.text_input("Quản lý version API", placeholder="Ví dụ: v1/v2, semantic versioning, theo header…")
+        api_versioning = st.text_input("Quản lý version API", placeholder="Ví dụ: v1/v2; semantic versioning; header-based…")
         dependency_level = st.radio("Mức độ phụ thuộc hệ thống khác", options=["Low", "Medium", "High"])
 
     # ----------------------------
-    # TAB E
+    # E. An toàn – Tuân thủ
     # ----------------------------
     with tabs[4]:
         st.subheader("E. THÔNG TIN AN TOÀN – TUÂN THỦ (KHUYẾN NGHỊ)")
-
         rbac = st.text_area("Phân quyền truy cập (RBAC)", height=80)
         auth = st.multiselect("Xác thực", options=["SSO", "MFA"])
         encryption = st.multiselect("Mã hóa dữ liệu", options=["At-rest", "In-transit"])
         legal_compliance = st.multiselect("Tuân thủ pháp lý", options=["GDPR", "Luật ATTT VN", "ICAO Annex 17"])
 
     # ----------------------------
-    # TAB F
+    # F. Đánh giá & Định hướng
     # ----------------------------
     with tabs[5]:
         st.subheader("F. ĐÁNH GIÁ & ĐỊNH HƯỚNG QUY HOẠCH")
-
         col1, col2 = st.columns(2)
         with col1:
             digital_strategy_fit = st.slider("Mức độ phù hợp chiến lược số (1–5)", 1, 5, 3)
@@ -290,30 +306,28 @@ with st.form("survey_form", clear_on_submit=False):
         priority = st.radio("Độ ưu tiên", options=["High", "Medium", "Low"])
 
     # ----------------------------
-    # TAB G
+    # G. Quản lý – Lưu trữ
     # ----------------------------
     with tabs[6]:
         st.subheader("G. THÔNG TIN QUẢN LÝ – LƯU TRỮ")
-
         updated_by = st.text_input("Người cập nhật *")
         updated_date = st.date_input("Ngày cập nhật", value=date.today())
         form_version = st.text_input("Phiên bản form", value="1.0")
-        notes = st.text_area("Ghi chú", height=100)
+        notes = st.text_area("Ghi chú", height=90)
 
     # ----------------------------
     # Submit
     # ----------------------------
     with tabs[7]:
-        st.subheader("Xuất / Lưu")
-        st.write("Nhấn **Submit** để chốt dữ liệu và xuất file / lưu Google Sheets.")
-
+        st.subheader("Submit / Xuất / Lưu")
+        st.write("Nhấn **Submit** để chốt dữ liệu, sau đó tải JSON/CSV hoặc lưu Google Sheets.")
         submitted = st.form_submit_button("Submit", type="primary")
 
-# ----------------------------
-# Process submission
-# ----------------------------
+
+# =========================
+# After submit
+# =========================
 if submitted:
-    # Basic validation
     errors = []
     if not required(system_name):
         errors.append("Thiếu: Tên hệ thống/phần mềm")
@@ -323,4 +337,15 @@ if submitted:
         errors.append("Thiếu: Người cập nhật")
 
     if errors:
-        st.error("Vui lòng bổ sung các trường bắt buộc:\n- " + "\n- ".join
+        st.error("Vui lòng bổ sung trường bắt buộc:\n- " + "\n- ".join(errors))
+        st.stop()
+
+    form_data: Dict[str, Any] = {
+        "A": {
+            "A1": {
+                "system_name": system_name,
+                "system_code": system_code,
+                "business_group": business_group,
+                "business_owner": business_owner,
+                "it_owner": it_owner,
+               
