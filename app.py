@@ -1,18 +1,23 @@
 import json
+import os
 from datetime import date, datetime
 from io import BytesIO
+from typing import Dict, Any, List, Tuple
 
 import streamlit as st
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 
 # -----------------------------
-# UI helpers
+# Styling
 # -----------------------------
-def inject_css():
+def inject_css() -> None:
     st.markdown(
         """
         <style>
@@ -25,7 +30,7 @@ def inject_css():
               linear-gradient(180deg, #070b14, #0b1220);
           }
 
-          /* Cards / panels feel */
+          /* Panels */
           .panel {
             background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
             border: 1px solid rgba(255,255,255,0.10);
@@ -50,9 +55,12 @@ def inject_css():
           .kv { display: grid; grid-template-columns: 220px 1fr; gap: 8px 12px; font-size: 12.5px; align-items: start; }
           .kv .k { color: rgba(0,0,0,0.66); }
           .kv .v { white-space: pre-wrap; }
-          @media (max-width: 980px){ .kv { grid-template-columns: 1fr; } }
 
-          /* Make sidebar more panel-like */
+          @media (max-width: 980px){
+            .kv { grid-template-columns: 1fr; }
+          }
+
+          /* Sidebar background */
           section[data-testid="stSidebar"] > div {
             background: rgba(0,0,0,0.18);
             border-right: 1px solid rgba(255,255,255,0.08);
@@ -63,27 +71,10 @@ def inject_css():
     )
 
 
-def panel(title: str, subtitle: str | None = None):
-    sub_html = f"<div style='color: rgba(255,255,255,0.70); font-size: 12.5px; line-height: 1.4;'>{subtitle}</div>" if subtitle else ""
-    st.markdown(
-        f"""
-        <div class="panel">
-          <div style="display:flex; justify-content:space-between; gap: 12px; align-items: baseline;">
-            <div>
-              <div style="font-weight: 700; letter-spacing: .2px; font-size: 14px; margin-bottom: 6px;">{title}</div>
-              {sub_html}
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 # -----------------------------
-# Data model
+# Data defaults
 # -----------------------------
-def default_data():
+def default_data() -> Dict[str, Any]:
     return {
         # A1
         "system_name": "",
@@ -92,18 +83,18 @@ def default_data():
         "business_owner": "",
         "it_owner": "",
         "vendor_partner": "",
-        "system_type": [],  # COTS/SaaS/In-house/Outsource/Legacy
-        "aviation_value_role": [],  # Core/Support/Analytics/Compliance
+        "system_type": [],
+        "aviation_value_role": [],
 
         # A2
         "business_goal": "",
         "functional_scope": "",
         "user_objects": "",
         "user_count": "",
-        "usage_area": [],  # Nội địa/Quốc tế/Toàn mạng
+        "usage_area": [],
 
         # A3
-        "deployment_year": None,
+        "deployment_year": "",
         "current_status": "",
         "biz_fit_score": 3,
         "plan_3_5_years": "",
@@ -184,104 +175,160 @@ def default_data():
     }
 
 
-def init_state():
+ALL_KEYS: List[str] = list(default_data().keys())
+
+
+def init_state() -> None:
     if "data" not in st.session_state:
         st.session_state.data = default_data()
+
+    if "dirty" not in st.session_state:
+        st.session_state.dirty = False
+
     if "last_saved" not in st.session_state:
         st.session_state.last_saved = None
 
+    if "show_report" not in st.session_state:
+        st.session_state.show_report = True
 
-def to_json_bytes(data: dict) -> bytes:
-    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    # Init widget keys (so widgets keep value across reruns)
+    for k in ALL_KEYS:
+        if k not in st.session_state:
+            st.session_state[k] = st.session_state.data.get(k, default_data()[k])
 
 
-def load_from_uploaded_json(uploaded_file) -> dict:
-    raw = uploaded_file.read()
-    obj = json.loads(raw.decode("utf-8"))
-    # Merge with defaults to avoid missing keys
+def mark_dirty() -> None:
+    st.session_state.dirty = True
+
+
+def collect_form_data() -> Dict[str, Any]:
+    """Collect current widget state into a dict."""
     d = default_data()
-    d.update(obj)
+    for k in ALL_KEYS:
+        d[k] = st.session_state.get(k, d[k])
     return d
 
 
-# -----------------------------
-# Report & PDF
-# -----------------------------
-def fmt_list(v):
-    if not v:
-        return "—"
-    if isinstance(v, list):
-        return ", ".join(v) if v else "—"
-    return str(v).strip() if str(v).strip() else "—"
+def apply_data_to_widgets(d: Dict[str, Any]) -> None:
+    """Set widget values from data dict."""
+    st.session_state.data = d
+    for k in ALL_KEYS:
+        st.session_state[k] = d.get(k, default_data()[k])
+    st.session_state.dirty = False
 
 
-def fmt(v):
+def to_json_bytes(d: Dict[str, Any]) -> bytes:
+    return json.dumps(d, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def load_from_uploaded_json(uploaded_file) -> Dict[str, Any]:
+    raw = uploaded_file.read()
+    obj = json.loads(raw.decode("utf-8"))
+    merged = default_data()
+    merged.update(obj)
+    return merged
+
+
+# -----------------------------
+# Formatting helpers
+# -----------------------------
+def fmt(v: Any) -> str:
     if v is None:
         return "—"
     s = str(v).strip()
     return s if s else "—"
 
 
-def build_report_html(d: dict) -> str:
-    def kv(k, v):
+def fmt_list(v: Any) -> str:
+    if not v:
+        return "—"
+    if isinstance(v, list):
+        return ", ".join([str(x) for x in v]) if v else "—"
+    return fmt(v)
+
+
+# -----------------------------
+# Report rendering (HTML)
+# -----------------------------
+def build_report_html(d: Dict[str, Any]) -> str:
+    def kv(k: str, v: str) -> str:
         return f"<div class='k'>{k}</div><div class='v'>{v}</div>"
+
+    updated = fmt(d.get("updated_date"))
+    updated_by = fmt(d.get("updated_by"))
+    version = fmt(d.get("form_version"))
 
     blocks = []
 
-    blocks.append(f"""
-      <div class="block">
-        <div style="font-weight:700; margin-bottom: 8px;">A. THÔNG TIN TỔNG QUAN, CHUNG</div>
-        <div class="kv">
-          {kv("Tên hệ thống/phần mềm", fmt(d["system_name"]))}
-          {kv("Mã hệ thống (System Code)", fmt(d["system_code"]))}
-          {kv("Nhóm nghiệp vụ", fmt(d["business_group"]))}
-          {kv("Business Owner", fmt(d["business_owner"]))}
-          {kv("IT Owner", fmt(d["it_owner"]))}
-          {kv("Nhà cung cấp/Đối tác", fmt(d["vendor_partner"]))}
-          {kv("Loại hệ thống", fmt_list(d["system_type"]))}
-          {kv("Vai trò trong chuỗi giá trị hàng không", fmt_list(d["aviation_value_role"]))}
-          {kv("Mục tiêu nghiệp vụ chính", fmt(d["business_goal"]))}
-          {kv("Phạm vi chức năng", fmt(d["functional_scope"]))}
-          {kv("Đối tượng người dùng", fmt(d["user_objects"]))}
-          {kv("Số lượng user (hiện tại / dự kiến 3–5 năm)", fmt(d["user_count"]))}
-          {kv("Khu vực sử dụng", fmt_list(d["usage_area"]))}
-          {kv("Năm triển khai", fmt(d["deployment_year"]))}
-          {kv("Tình trạng hiện tại", fmt(d["current_status"]))}
-          {kv("Đánh giá đáp ứng nghiệp vụ (1–5)", fmt(d["biz_fit_score"]))}
-          {kv("Kế hoạch 3–5 năm", fmt(d["plan_3_5_years"]))}
-        </div>
-      </div>
-    """)
+    blocks.append(
+        f"""
+        <div class="block">
+          <div style="font-weight:700; margin-bottom: 8px;">A. THÔNG TIN TỔNG QUAN, CHUNG</div>
+          <div class="kv">
+            {kv("Tên hệ thống/phần mềm", fmt(d["system_name"]))}
+            {kv("Mã hệ thống (System Code)", fmt(d["system_code"]))}
+            {kv("Nhóm nghiệp vụ", fmt(d["business_group"]))}
+            {kv("Đơn vị sở hữu nghiệp vụ (Business Owner)", fmt(d["business_owner"]))}
+            {kv("Đơn vị quản lý CNTT (IT Owner)", fmt(d["it_owner"]))}
+            {kv("Nhà cung cấp / Đối tác", fmt(d["vendor_partner"]))}
+            {kv("Loại hệ thống", fmt_list(d["system_type"]))}
+            {kv("Vai trò trong chuỗi giá trị hàng không", fmt_list(d["aviation_value_role"]))}
 
-    blocks.append(f"""
-      <div class="block">
-        <div style="font-weight:700; margin-bottom: 8px;">B. THÔNG TIN VỀ HẠ TẦNG (INFRASTRUCTURE)</div>
-        <div class="kv">
-          {kv("Mô hình hạ tầng", fmt(d["infra_model"]))}
-          {kv("Vị trí DC/Cloud Region", fmt(d["dc_region"]))}
-          {kv("Nhà cung cấp hạ tầng", fmt(d["infra_provider"]))}
-          {kv("Máy chủ (VM/Physical)", fmt(d["servers"]))}
-          {kv("Hệ điều hành", fmt(d["os"]))}
-          {kv("CPU / RAM / Storage", fmt(d["cpu_ram_storage"]))}
-          {kv("Database Engine", fmt(d["db_engine"]))}
-          {kv("Middleware", fmt(d["middleware"]))}
-          {kv("Network (LAN/WAN/MPLS/VPN)", fmt(d["network"]))}
-          {kv("SLA (% uptime)", fmt(d["sla_uptime"]))}
-          {kv("HA/DR", fmt(d["ha_dr"]))}
-          {kv("RPO / RTO", fmt(d["rpo_rto"]))}
-          {kv("Sao lưu dữ liệu", fmt_list(d["backup"]))}
-          {kv("Tuân thủ tiêu chuẩn", fmt_list(d["compliance"]))}
-        </div>
-      </div>
-    """)
+            {kv("Mục tiêu nghiệp vụ chính", fmt(d["business_goal"]))}
+            {kv("Phạm vi chức năng", fmt(d["functional_scope"]))}
+            {kv("Đối tượng người dùng", fmt(d["user_objects"]))}
+            {kv("Số lượng user (hiện tại / dự kiến 3–5 năm)", fmt(d["user_count"]))}
+            {kv("Khu vực sử dụng", fmt_list(d["usage_area"]))}
 
-    blocks.append(f"""
-      <div class="block">
-        <div style="font-weight:700; margin-bottom: 8px;">C. THÔNG TIN VỀ DỮ LIỆU (DATA)</div>
-        <div class="kv">
-          {kv("Dữ liệu nghiệp vụ chính (5–10 dữ liệu)", fmt(d["main_business_data"]))}
-          {kv("Dữ liệu cá nhân (PII)", fmt(d["pii"]))}
-          {kv("Dữ liệu nhạy cảm / an ninh hàng không", fmt(d["sensitive_aviation"]))}
-          {kv("Dữ liệu tài chính / thanh toán", fmt(d["finance_payment"]))}
-          {kv("Source of Truth", fmt(d["source_of_truth"]))}
-          {kv("Định dạng dữ liệu", fmt(d["
+            {kv("Năm triển khai", fmt(d["deployment_year"]))}
+            {kv("Tình trạng hiện tại", fmt(d["current_status"]))}
+            {kv("Đánh giá mức độ đáp ứng nghiệp vụ (1–5)", fmt(d["biz_fit_score"]))}
+            {kv("Kế hoạch 3–5 năm", fmt(d["plan_3_5_years"]))}
+          </div>
+        </div>
+        """
+    )
+
+    blocks.append(
+        f"""
+        <div class="block">
+          <div style="font-weight:700; margin-bottom: 8px;">B. THÔNG TIN VỀ HẠ TẦNG (INFRASTRUCTURE)</div>
+          <div class="kv">
+            {kv("Mô hình hạ tầng", fmt(d["infra_model"]))}
+            {kv("Vị trí DC/Cloud Region", fmt(d["dc_region"]))}
+            {kv("Nhà cung cấp hạ tầng (AWS/Azure/GCP/IDC…)", fmt(d["infra_provider"]))}
+
+            {kv("Máy chủ (VM/Physical)", fmt(d["servers"]))}
+            {kv("Hệ điều hành", fmt(d["os"]))}
+            {kv("CPU / RAM / Storage", fmt(d["cpu_ram_storage"]))}
+            {kv("Database Engine", fmt(d["db_engine"]))}
+            {kv("Middleware", fmt(d["middleware"]))}
+            {kv("Network (LAN/WAN/MPLS/VPN)", fmt(d["network"]))}
+
+            {kv("SLA (% uptime)", fmt(d["sla_uptime"]))}
+            {kv("HA/DR", fmt(d["ha_dr"]))}
+            {kv("RPO / RTO", fmt(d["rpo_rto"]))}
+            {kv("Sao lưu dữ liệu", fmt_list(d["backup"]))}
+            {kv("Tuân thủ tiêu chuẩn", fmt_list(d["compliance"]))}
+          </div>
+        </div>
+        """
+    )
+
+    blocks.append(
+        f"""
+        <div class="block">
+          <div style="font-weight:700; margin-bottom: 8px;">C. THÔNG TIN VỀ DỮ LIỆU (DATA)</div>
+          <div class="kv">
+            {kv("Dữ liệu nghiệp vụ chính (liệt kê 5–10)", fmt(d["main_business_data"]))}
+            {kv("Dữ liệu cá nhân (PII)", fmt(d["pii"]))}
+            {kv("Dữ liệu nhạy cảm / an ninh hàng không", fmt(d["sensitive_aviation"]))}
+            {kv("Dữ liệu tài chính / thanh toán", fmt(d["finance_payment"]))}
+
+            {kv("Nguồn dữ liệu (Source of Truth)", fmt(d["source_of_truth"]))}
+            {kv("Định dạng dữ liệu (Structured / Semi / Unstructured)", fmt(d["data_format"]))}
+            {kv("Dung lượng dữ liệu (hiện tại / tăng trưởng năm)", fmt(d["data_size_growth"]))}
+            {kv("Chính sách lưu trữ & xóa dữ liệu", fmt(d["retention_policy"]))}
+            {kv("Chất lượng dữ liệu (Đầy đủ / Chính xác / Kịp thời)", fmt(d["data_quality"]))}
+
+            {kv("Có cung cấp dữ liệu cho BI/AI không?", fmt(d["provide_bi_ai"]))
