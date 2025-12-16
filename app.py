@@ -804,4 +804,287 @@ with tab4:
         with col2:
             st.subheader("📊 Phân bố theo độ ưu tiên")
             uu_tien_count = {}
-                
+        New Chat
+241 lines
+
+            for survey in st.session_state.all_surveys:
+                priority = survey['Độ ưu tiên']
+                uu_tien_count[priority] = uu_tien_count.get(priority, 0) + 1
+            
+            df_priority = pd.DataFrame(list(uu_tien_count.items()), columns=['Độ ưu tiên', 'Số lượng'])
+            st.bar_chart(df_priority.set_index('Độ ưu tiên'))
+        
+        st.markdown("---")
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            st.subheader("📊 Phân bố theo loại hệ thống")
+            loai_count = {}
+            for survey in st.session_state.all_surveys:
+                loai = survey['Loại hệ thống']
+                if loai:
+                    for l in loai.split(", "):
+                        if l.strip():
+                            loai_count[l.strip()] = loai_count.get(l.strip(), 0) + 1
+            
+            if loai_count:
+                df_loai = pd.DataFrame(list(loai_count.items()), columns=['Loại', 'Số lượng'])
+                st.bar_chart(df_loai.set_index('Loại'))
+            else:
+                st.info("Chưa có dữ liệu")
+        
+        with col4:
+            st.subheader("📊 Phân bố theo mô hình hạ tầng")
+            mo_hinh_count = {}
+            for survey in st.session_state.all_surveys:
+                mo_hinh = survey['Mô hình hạ tầng']
+                if mo_hinh:
+                    for m in mo_hinh.split(", "):
+                        if m.strip():
+                            mo_hinh_count[m.strip()] = mo_hinh_count.get(m.strip(), 0) + 1
+            
+            if mo_hinh_count:
+                df_mo_hinh = pd.DataFrame(list(mo_hinh_count.items()), columns=['Mô hình', 'Số lượng'])
+                st.bar_chart(df_mo_hinh.set_index('Mô hình'))
+            else:
+                      st.info("Chưa có dữ liệu")
+        
+        st.markdown("---")
+        
+        # Biểu đồ đánh giá
+        st.subheader("📊 Phân bố điểm đánh giá mức độ đáp ứng")
+        ratings = [s['Mức độ đáp ứng'] for s in st.session_state.all_surveys]
+        rating_count = {i: ratings.count(i) for i in range(1, 6)}
+        
+        df_rating = pd.DataFrame(list(rating_count.items()), columns=['Điểm', 'Số lượng'])
+        st.bar_chart(df_rating.set_index('Điểm'))
+        
+        st.markdown("---")
+        
+        # Biểu đồ năm triển khai
+        col5, col6 = st.columns(2)
+        
+        with col5:
+            st.subheader("📊 Phân bố theo năm triển khai")
+            nam_count = {}
+            for survey in st.session_state.all_surveys:
+                nam = survey['Năm triển khai']
+                nam_count[nam] = nam_count.get(nam, 0) + 1
+            
+            df_nam = pd.DataFrame(list(nam_count.items()), columns=['Năm', 'Số lượng'])
+            df_nam = df_nam.sort_values('Năm')
+            st.line_chart(df_nam.set_index('Năm'))
+        
+        with col6:
+            st.subheader("📊 Phân bố theo SLA")
+            sla_count = {}
+            for survey in st.session_state.all_surveys:
+                sla = survey['SLA']
+                if sla:
+                    sla_count[sla] = sla_count.get(sla, 0) + 1
+            
+            if sla_count:
+                df_sla = pd.DataFrame(list(sla_count.items()), columns=['SLA', 'Số lượng'])
+                st.bar_chart(df_sla.set_index('SLA'))
+            else:
+                st.info("Chưa có dữ liệu SLA")
+        
+        st.markdown("---")
+        
+        # Bảng phân tích chi tiết
+        col7, col8 = st.columns(2)
+        
+        with col7:
+            st.subheader("🔍 Phân tích dữ liệu")
+            
+            # Đếm dữ liệu nhạy cảm
+            du_lieu_ca_nhan = sum(1 for s in st.session_state.all_surveys if s['Dữ liệu cá nhân'] == 'Có')
+            du_lieu_nhay_cam = sum(1 for s in st.session_state.all_surveys if s['Dữ liệu nhạy cảm'] == 'Có')
+            du_lieu_tai_chinh = sum(1 for s in st.session_state.all_surveys if s['Dữ liệu tài chính'] == 'Có')
+            du_lieu_roi_vn = sum(1 for s in st.session_state.all_surveys if s['Dữ liệu rời VN'] == 'Có')
+            
+            st.write(f"**Hệ thống có dữ liệu cá nhân:** {du_lieu_ca_nhan}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Hệ thống có dữ liệu nhạy cảm:** {du_lieu_nhay_cam}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Hệ thống có dữ liệu tài chính:** {du_lieu_tai_chinh}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Dữ liệu rời Việt Nam:** {du_lieu_roi_vn}/{len(st.session_state.all_surveys)}")
+            
+            st.markdown("---")
+            
+            # BI/AI
+            bi_ai_count = sum(1 for s in st.session_state.all_surveys if s['BI/AI'] == 'Có')
+            data_warehouse = sum(1 for s in st.session_state.all_surveys if s['Data Warehouse'] == 'Có')
+            real_time = sum(1 for s in st.session_state.all_surveys if s['Real-time'] == 'Có')
+            
+            st.write(f"**Hệ thống hỗ trợ BI/AI:** {bi_ai_count}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Kết nối Data Warehouse:** {data_warehouse}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Dữ liệu Real-time:** {real_time}/{len(st.session_state.all_surveys)}")
+        
+        with col8:
+            st.subheader("🔒 Phân tích an toàn & tích hợp")
+            
+            # API Gateway
+            api_gateway = sum(1 for s in st.session_state.all_surveys if s['API Gateway'] == 'Có')
+            logging = sum(1 for s in st.session_state.all_surveys if s['Logging/Monitoring'] == 'Có')
+            version_api = sum(1 for s in st.session_state.all_surveys if s['Version API'] == 'Có')
+            
+            st.write(f"**Có API Gateway:** {api_gateway}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Có Logging/Monitoring:** {logging}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Quản lý Version API:** {version_api}/{len(st.session_state.all_surveys)}")
+            
+            st.markdown("---")
+            
+            # Xác thực
+            sso_count = sum(1 for s in st.session_state.all_surveys if 'SSO' in s['Xác thực'])
+            mfa_count = sum(1 for s in st.session_state.all_surveys if 'MFA' in s['Xác thực'])
+            
+            st.write(f"**Sử dụng SSO:** {sso_count}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Sử dụng MFA:** {mfa_count}/{len(st.session_state.all_surveys)}")
+            
+            # Mã hóa
+            ma_hoa_rest = sum(1 for s in st.session_state.all_surveys if 'At-rest' in s['Mã hóa'])
+            ma_hoa_transit = sum(1 for s in st.session_state.all_surveys if 'In-transit' in s['Mã hóa'])
+            
+            st.write(f"**Mã hóa At-rest:** {ma_hoa_rest}/{len(st.session_state.all_surveys)}")
+            st.write(f"**Mã hóa In-transit:** {ma_hoa_transit}/{len(st.session_state.all_surveys)}")
+        
+        st.markdown("---")
+        
+        # Phân tích HA/DR
+        st.subheader("🔄 Phân tích HA/DR")
+        col9, col10 = st.columns(2)
+        
+        with col9:
+            ha_dr_count = {}
+            for survey in st.session_state.all_surveys:
+                ha_dr = survey['HA/DR']
+                ha_dr_count[ha_dr] = ha_dr_count.get(ha_dr, 0) + 1
+            
+            df_ha_dr = pd.DataFrame(list(ha_dr_count.items()), columns=['HA/DR', 'Số lượng'])
+            st.bar_chart(df_ha_dr.set_index('HA/DR'))
+        
+        with col10:
+            # Tuân thủ tiêu chuẩn
+            st.write("**Tuân thủ tiêu chuẩn:**")
+            iso_count = sum(1 for s in st.session_state.all_surveys if 'ISO 27001' in s['Tuân thủ tiêu chuẩn'])
+            pci_count = sum(1 for s in st.session_state.all_surveys if 'PCI DSS' in s['Tuân thủ tiêu chuẩn'])
+            icao_count = sum(1 for s in st.session_state.all_surveys if 'ICAO' in s['Tuân thủ tiêu chuẩn'])
+            iata_count = sum(1 for s in st.session_state.all_surveys if 'IATA' in s['Tuân thủ tiêu chuẩn'])
+            
+            st.write(f"- ISO 27001: {iso_count}")
+            st.write(f"- PCI DSS: {pci_count}")
+            st.write(f"- ICAO: {icao_count}")
+            st.write(f"- IATA: {iata_count}")
+        
+        st.markdown("---")
+        
+        # Danh sách hệ thống cần ưu tiên
+        st.subheader("⚠️ Hệ thống cần ưu tiên xử lý")
+        
+        high_priority_systems = [
+            {
+                "Tên hệ thống": s['Tên hệ thống'],
+                "Mã hệ thống": s['Mã hệ thống'],
+                "Tình trạng": s['Tình trạng'],
+                "Đánh giá": f"{s['Mức độ đáp ứng']}/5",
+                "Đề xuất": s['Đề xuất'],
+                "Người cập nhật": s['Người cập nhật']
+            }
+            for s in st.session_state.all_surveys 
+            if s['Độ ưu tiên'] == 'High'
+        ]
+        
+        if high_priority_systems:
+            df_high_priority = pd.DataFrame(high_priority_systems)
+            st.dataframe(df_high_priority, use_container_width=True)
+            
+            # Xuất danh sách ưu tiên
+            csv_high = df_high_priority.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Tải danh sách ưu tiên (CSV)",
+                data=csv_high,
+                file_name=f"He_thong_uu_tien_cao_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("✅ Không có hệ thống ưu tiên cao")
+        
+        st.markdown("---")
+        
+        # Hệ thống cần nâng cấp/thay thế
+        st.subheader("🔧 Hệ thống cần nâng cấp/thay thế")
+        
+        upgrade_systems = [
+            {
+                "Tên hệ thống": s['Tên hệ thống'],
+                "Mã hệ thống": s['Mã hệ thống'],
+                "Năm triển khai": s['Năm triển khai'],
+                "Tuổi hệ thống": 2024 - s['Năm triển khai'],
+                "Đánh giá": f"{s['Mức độ đáp ứng']}/5",
+                "Đề xuất": s['Đề xuất'],
+                "Độ ưu tiên": s['Độ ưu tiên']
+            }
+            for s in st.session_state.all_surveys 
+            if 'Nâng cấp' in s['Đề xuất'] or 'Thay thế' in s['Đề xuất']
+        ]
+        
+        if upgrade_systems:
+            df_upgrade = pd.DataFrame(upgrade_systems)
+            df_upgrade = df_upgrade.sort_values('Tuổi hệ thống', ascending=False)
+            st.dataframe(df_upgrade, use_container_width=True)
+            
+            # Xuất danh sách nâng cấp
+            csv_upgrade = df_upgrade.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Tải danh sách nâng cấp (CSV)",
+                data=csv_upgrade,
+                file_name=f"He_thong_nang_cap_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("✅ Không có hệ thống cần nâng cấp/thay thế")
+        
+        st.markdown("---")
+        
+        # Hệ thống Legacy (> 10 năm)
+        st.subheader("⏰ Hệ thống Legacy (> 10 năm)")
+        
+        current_year = datetime.now().year
+        legacy_systems = [
+            {
+                "Tên hệ thống": s['Tên hệ thống'],
+                "Mã hệ thống": s['Mã hệ thống'],
+                "Năm triển khai": s['Năm triển khai'],
+                "Tuổi": current_year - s['Năm triển khai'],
+                "Loại": s['Loại hệ thống'],
+                "Tình trạng": s['Tình trạng'],
+                "Đánh giá": f"{s['Mức độ đáp ứng']}/5"
+            }
+            for s in st.session_state.all_surveys 
+            if (current_year - s['Năm triển khai']) > 10
+        ]
+        
+        if legacy_systems:
+            df_legacy = pd.DataFrame(legacy_systems)
+            df_legacy = df_legacy.sort_values('Tuổi', ascending=False)
+            st.dataframe(df_legacy, use_container_width=True)
+            st.warning(f"⚠️ Có {len(legacy_systems)} hệ thống Legacy cần xem xét!")
+        else:
+            st.success("✅ Không có hệ thống Legacy")
+        
+        st.markdown("---")
+        
+        # Ma trận rủi ro
+        st.subheader("🎯 Ma trận rủi ro (Đánh giá vs Ưu tiên)")
+        
+        risk_matrix = []
+        for survey in st.session_state.all_surveys:
+            risk_matrix.append({
+                "Tên hệ thống": survey['Tên hệ thống'],
+                "Mức độ đáp ứng": survey['Mức độ đáp ứng'],
+                "Độ ưu tiên": survey['Độ ưu tiên'],
+                "Rủi ro": "Cao" if survey['Mức độ đáp ứng'] <= 2 and survey['Độ ưu tiên'] == 'High' else 
+                         "Trung bình" if survey['Mức độ đáp ứng'] == 3 else "Thấp"
+            })
+        
+        df_risk = pd.
