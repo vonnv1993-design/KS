@@ -1120,3 +1120,234 @@ col1, col2, col3 = st.columns([2, 2, 2])
 
 with col1:
     if st.button("💾 LƯU
+# =========================
+# ACTIONS SECTION
+# =========================
+st.divider()
+
+# Summary stats
+col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+
+with col_stat1:
+    st.markdown("""
+    <div class="stats-card">
+        <div class="stats-number">✓</div>
+        <div class="stats-label">Form Completion</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_stat2:
+    completed = sum([1 for v in form_data.values() if v])
+    total = len(form_data)
+    st.markdown(f"""
+    <div class="stats-card">
+        <div class="stats-number">{completed}/{total}</div>
+        <div class="stats-label">Fields Filled</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_stat3:
+    st.markdown(f"""
+    <div class="stats-card">
+        <div class="stats-number">{form_data.get('sla', 99)}%</div>
+        <div class="stats-label">SLA Target</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_stat4:
+    priority_color = {"High (Cao)": "🔴", "Medium (Trung bình)": "🟡", "Low (Thấp)": "🟢"}
+    priority_icon = priority_color.get(priority, "⚪")
+    st.markdown(f"""
+    <div class="stats-card">
+        <div class="stats-number">{priority_icon}</div>
+        <div class="stats-label">Priority</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Action buttons
+col1, col2, col3 = st.columns([2, 2, 2])
+
+with col1:
+    if st.button("💾 LƯU JSON", use_container_width=True):
+        errors = validate_form()
+        if errors:
+            st.error(f"⚠️ Vui lòng điền đầy đủ: {', '.join(errors)}")
+        else:
+            name = system_code or "system"
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            fname = f"{name}_{timestamp}.json"
+            fpath = os.path.join(DATA_DIR, fname)
+            
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(form_data, f, ensure_ascii=False, indent=2)
+            
+            st.success(f"✅ Đã lưu thành công: {fname}")
+            st.balloons()
+
+with col2:
+    pdf_bytes = export_pdf(form_data)
+    st.download_button(
+        "📄 XUẤT PDF",
+        pdf_bytes,
+        file_name=f"IT_Survey_{system_code or 'Report'}_{datetime.now().strftime('%Y%m%d')}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
+with col3:
+    # Export to Excel
+    if st.button("📊 XUẤT EXCEL", use_container_width=True):
+        df = pd.DataFrame([form_data])
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Survey Data')
+        
+        excel_data = output.getvalue()
+        
+        st.download_button(
+            "⬇️ Tải Excel",
+            excel_data,
+            file_name=f"IT_Survey_{system_code or 'Data'}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+# =========================
+# VIEW SAVED DATA
+# =========================
+st.divider()
+st.subheader("📂 Dữ liệu đã lưu")
+
+if os.path.exists(DATA_DIR):
+    json_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.json')]
+    
+    if json_files:
+        st.info(f"📊 Tổng số: **{len(json_files)}** bản ghi")
+        
+        # Display in expandable sections
+        for idx, file in enumerate(sorted(json_files, reverse=True)[:10], 1):
+            with st.expander(f"📄 {file}"):
+                fpath = os.path.join(DATA_DIR, file)
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    saved_data = json.load(f)
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.write("**Hệ thống:**", saved_data.get('system_name', 'N/A'))
+                    st.write("**Mã:**", saved_data.get('system_code', 'N/A'))
+                    st.write("**Owner:**", saved_data.get('business_owner', 'N/A'))
+                
+                with col_b:
+                    st.write("**Trạng thái:**", saved_data.get('status', 'N/A'))
+                    st.write("**Đề xuất:**", saved_data.get('proposal', 'N/A'))
+                    st.write("**Ưu tiên:**", saved_data.get('priority', 'N/A'))
+                
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
+                
+                with col_btn1:
+                    if st.button(f"👁️ Xem", key=f"view_{idx}"):
+                        st.json(saved_data)
+                
+                with col_btn2:
+                    pdf_data = export_pdf(saved_data)
+                    st.download_button(
+                        "📄 PDF",
+                        pdf_data,
+                        file_name=f"{file.replace('.json', '.pdf')}",
+                        mime="application/pdf",
+                        key=f"pdf_{idx}"
+                    )
+                
+                with col_btn3:
+                    if st.button(f"🗑️ Xóa", key=f"del_{idx}"):
+                        os.remove(fpath)
+                        st.success(f"Đã xóa {file}")
+                        st.rerun()
+    else:
+        st.warning("📭 Chưa có dữ liệu nào được lưu")
+else:
+    st.warning("📁 Thư mục dữ liệu chưa tồn tại")
+
+# =========================
+# EXPORT ALL DATA
+# =========================
+st.divider()
+
+if json_files:
+    col_export1, col_export2 = st.columns(2)
+    
+    with col_export1:
+        if st.button("📦 XUẤT TẤT CẢ RA EXCEL", use_container_width=True):
+            all_data = []
+            for file in json_files:
+                fpath = os.path.join(DATA_DIR, file)
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    all_data.append(json.load(f))
+            
+            df_all = pd.DataFrame(all_data)
+            
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_all.to_excel(writer, index=False, sheet_name='All Systems')
+            
+            excel_all = output.getvalue()
+            
+            st.download_button(
+                "⬇️ Tải tất cả dữ liệu (Excel)",
+                excel_all,
+                file_name=f"IT_Survey_All_Systems_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    
+    with col_export2:
+        if st.button("📊 XEM DASHBOARD", use_container_width=True):
+            st.info("🚧 Tính năng Dashboard đang phát triển")
+
+# =========================
+# FOOTER
+# =========================
+st.divider()
+st.markdown("""
+<div style='text-align: center; color: #64748B; padding: 2rem 0;'>
+    <p style='margin: 0;'><strong>Vietnam Airlines</strong> | IT Department</p>
+    <p style='margin: 0.5rem 0 0 0; font-size: 0.9rem;'>
+        Enterprise Architecture & IT Master Planning © 2024
+    </p>
+    <p style='margin: 0.5rem 0 0 0; font-size: 0.85rem;'>
+        📧 Contact: itdept@vietnamairlines.com | 📞 Hotline: 1900 1100
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# =========================
+# SIDEBAR (Optional)
+# =========================
+with st.sidebar:
+    st.image("https://www.vietnamairlines.com/~/media/Images/VNANew/logo.png", width=200)
+    st.markdown("---")
+    
+    st.markdown("### 📌 Hướng dẫn sử dụng")
+    st.markdown("""
+    1. **Điền thông tin** vào các tab từ A đến G
+    2. **Kiểm tra** các trường bắt buộc (*)
+    3. **Lưu JSON** để lưu trữ dữ liệu
+    4. **Xuất PDF/Excel** để báo cáo
+    """)
+    
+    st.markdown("---")
+    st.markdown("### 📊 Thống kê")
+    st.metric("Tổng hệ thống", len(json_files) if 'json_files' in locals() else 0)
+    st.metric("Form version", version)
+    
+    st.markdown("---")
+    st.markdown("### 🔗 Liên kết")
+    st.markdown("[📖 Tài liệu hướng dẫn](#)")
+    st.markdown("[🎯 IT Strategy](#)")
+    st.markdown("[📧 Liên hệ IT Dept](#)")
+    
+    st.markdown("---")
+    st.caption("Version 1.0 | Last updated: 2024")
