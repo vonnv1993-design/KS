@@ -1,274 +1,326 @@
-def ui_section_F():
-    st.subheader("F. ĐÁNH GIÁ & ĐỊNH HƯỚNG QUY HOẠCH")
+import json
+import uuid
+from datetime import datetime, date
+from typing import Any, Dict
 
-    st.slider("Mức độ phù hợp chiến lược số (1–5)", 1, 5, 3, key="F.phu_hop_chien_luoc_so")
-    st.selectbox(
-        "Mức độ sẵn sàng Cloud / AI",
-        ["Chưa sẵn sàng", "Một phần", "Sẵn sàng", "Đã triển khai"],
-        key="F.san_sang_cloud_ai",
-    )
-    st.selectbox(
-        "Khả năng mở rộng (Scalability)",
-        ["Thấp", "Trung bình", "Cao"],
-        key="F.scalability",
-    )
-
-    st.markdown("### Đề xuất")
-    st.radio(
-        "Hướng xử lý",
-        ["Giữ nguyên", "Nâng cấp", "Hợp nhất", "Thay thế"],
-        key="F.de_xuat",
-        horizontal=True,
-    )
-    st.selectbox("Độ ưu tiên", ["High", "Medium", "Low"], key="F.do_uu_tien")
-    st.text_area("Ghi chú/luận cứ đề xuất", key="F.ghi_chu_de_xuat")
-
-
-def ui_section_G():
-    st.subheader("G. THÔNG TIN QUẢN LÝ – LƯU TRỮ")
-
-    st.text_input("Người cập nhật", key="G.nguoi_cap_nhat")
-    st.text_input("Ngày cập nhật", key="G.ngay_cap_nhat", disabled=True)
-    st.text_input("Phiên bản form", key="G.phien_ban_form", disabled=True)
-    st.text_area("Ghi chú", key="G.ghi_chu")
+import pandas as pd
+import streamlit as st
 
 
 # ----------------------------
-# App Pages
+# Helpers
 # ----------------------------
-def page_form():
-    st.header("Nhập/Cập nhật khảo sát hệ thống CNTT")
+def now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
-    # Sidebar: load existing
-    st.sidebar.subheader("Nạp dữ liệu có sẵn")
-    df = load_all_responses()
 
-    system_code_list = df["system_code"].dropna().unique().tolist() if not df.empty else []
-    selected_code = st.sidebar.selectbox("Chọn Mã hệ thống để nạp", ["(Không nạp)"] + system_code_list)
-
-    col_load1, col_load2 = st.sidebar.columns(2)
-    if col_load1.button("Nạp", use_container_width=True):
-        if selected_code != "(Không nạp)":
-            payload = get_response_by_code(selected_code) or {}
-            clear_form_keys()
-            payload_to_session_state(payload)
-            st.rerun()
-
-    if col_load2.button("Xóa form", use_container_width=True):
-        clear_form_keys()
-        st.rerun()
-
-    st.sidebar.divider()
-    st.sidebar.subheader("Thông tin cập nhật (meta)")
-    meta_updated_by = st.sidebar.text_input("User cập nhật", key="meta.updated_by")
-    allow_delete = st.sidebar.checkbox("Cho phép xóa bản ghi", value=False)
-
-    # Set default quản trị G (nếu chưa có)
-    if "G.nguoi_cap_nhat" not in st.session_state and meta_updated_by:
-        st.session_state["G.nguoi_cap_nhat"] = meta_updated_by
-
-    # Ensure default for disabled fields
-    st.session_state["G.ngay_cap_nhat"] = datetime.now().isoformat(timespec="seconds")
-    st.session_state["G.phien_ban_form"] = FORM_VERSION
-
-    with st.form("survey_form", clear_on_submit=False):
-        system_code, system_name, business_group = ui_section_A()
-        ui_section_B()
-        ui_section_C()
-        ui_section_D()
-        ui_section_E()
-        ui_section_F()
-        ui_section_G()
-
-        submitted = st.form_submit_button("Lưu khảo sát", type="primary")
-
-    # Handle submit
-    if submitted:
-        system_code = (system_code or "").strip()
-        system_name = (system_name or "").strip()
-
-        if not system_code:
-            st.error("Vui lòng nhập **Mã hệ thống (System Code)**.")
-            return
-
-        updated_by = (meta_updated_by or "").strip() or (st.session_state.get("G.nguoi_cap_nhat") or "").strip()
-        if not updated_by:
-            st.error("Vui lòng nhập **User cập nhật** (sidebar) hoặc **Người cập nhật** (mục G).")
-            return
-
-        payload = get_form_payload()
-
-        # Đồng bộ lại các trường quản trị
-        payload.setdefault("G", {})
-        payload["G"]["ngay_cap_nhat"] = datetime.now().isoformat(timespec="seconds")
-        payload["G"]["phien_ban_form"] = FORM_VERSION
-        payload["G"]["nguoi_cap_nhat"] = st.session_state.get("G.nguoi_cap_nhat", updated_by)
-
-        upsert_response(
-            system_code=system_code,
-            system_name=system_name,
-            business_group=business_group,
-            updated_by=updated_by,
-            payload=payload,
-        )
-        st.success(f"Đã lưu khảo sát cho hệ thống: {system_code} - {system_name}")
-
-    # Optional: delete current loaded record
-    st.sidebar.divider()
-    st.sidebar.subheader("Xóa bản ghi")
-    delete_code = st.sidebar.text_input("Nhập Mã hệ thống để xóa", key="meta.delete_code")
-    if st.sidebar.button("Xóa", disabled=not allow_delete, use_container_width=True):
-        dc = (delete_code or "").strip()
-        if not dc:
-            st.sidebar.error("Nhập Mã hệ thống cần xóa.")
+def flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
+    """Flatten nested dict for CSV export."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            items.append((new_key, ", ".join([str(x) for x in v])))
         else:
-            delete_by_code(dc)
-            st.sidebar.success(f"Đã xóa: {dc}")
-            clear_form_keys()
-            st.rerun()
+            items.append((new_key, v))
+    return dict(items)
 
 
-def page_list():
-    st.header("Danh sách hệ thống đã khảo sát")
+def required(value: str) -> bool:
+    return bool(value and str(value).strip())
 
-    df = load_all_responses()
-    if df.empty:
-        st.info("Chưa có dữ liệu.")
-        return
 
-    export_df = to_flat_export_df(df)
+# ----------------------------
+# Optional: Google Sheets 저장
+# ----------------------------
+def save_to_gsheets(record: Dict[str, Any]) -> None:
+    """
+    Save a record to Google Sheets.
+    Requires:
+      - st.secrets["gcp_service_account"] (JSON dict)
+      - st.secrets["gsheets"]["spreadsheet_id"]
+      - st.secrets["gsheets"]["worksheet_name"] (optional, default 'data')
+    """
+    import gspread
+    from google.oauth2.service_account import Credentials
 
-    # Filters
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        bg = st.selectbox("Lọc theo nhóm nghiệp vụ", ["(Tất cả)"] + sorted(df["business_group"].dropna().unique().tolist()))
-    with col2:
-        status_col = "A3.tinh_trang"
-        status_vals = sorted(export_df[status_col].dropna().unique().tolist()) if status_col in export_df.columns else []
-        status = st.selectbox("Lọc theo tình trạng", ["(Tất cả)"] + status_vals)
-    with col3:
-        q = st.text_input("Tìm kiếm (code/name)", value="")
-
-    view = export_df.copy()
-
-    if bg != "(Tất cả)":
-        view = view[view["meta.business_group"] == bg]
-
-    if status != "(Tất cả)" and status_col in view.columns:
-        view = view[view[status_col].fillna("") == status]
-
-    if q.strip():
-        qq = q.strip().lower()
-        mask = (
-            view["meta.system_code"].fillna("").str.lower().str.contains(qq)
-            | view["meta.system_name"].fillna("").str.lower().str.contains(qq)
-        )
-        view = view[mask]
-
-    show_cols = [
-        "meta.system_code",
-        "meta.system_name",
-        "meta.business_group",
-        "A3.tinh_trang",
-        "A3.ke_hoach_3_5_nam",
-        "B1.mo_hinh_ha_tang",
-        "C1.pii",
-        "F.de_xuat",
-        "F.do_uu_tien",
-        "meta.updated_by",
-        "meta.updated_at",
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
     ]
-    show_cols = [c for c in show_cols if c in view.columns]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    gc = gspread.authorize(creds)
 
-    st.dataframe(view[show_cols], use_container_width=True, hide_index=True)
+    spreadsheet_id = st.secrets["gsheets"]["spreadsheet_id"]
+    worksheet_name = st.secrets["gsheets"].get("worksheet_name", "data")
 
+    sh = gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=worksheet_name, rows=1000, cols=200)
 
-def page_dashboard():
-    st.header("Dashboard tổng hợp")
+    flat = flatten_dict(record)
 
-    df = load_all_responses()
-    if df.empty:
-        st.info("Chưa có dữ liệu để tổng hợp.")
+    # Ensure header exists
+    existing_headers = ws.row_values(1)
+    if not existing_headers:
+        ws.append_row(list(flat.keys()))
+        ws.append_row(list(flat.values()))
         return
 
-    export_df = to_flat_export_df(df)
+    # If new keys appear, extend headers (simple strategy)
+    headers = existing_headers[:]
+    changed = False
+    for key in flat.keys():
+        if key not in headers:
+            headers.append(key)
+            changed = True
 
-    total = len(export_df)
-    pii_yes = 0
-    if "C1.pii" in export_df.columns:
-        pii_yes = (export_df["C1.pii"].fillna("").astype(str) == "Có").sum()
+    if changed:
+        ws.update("1:1", [headers])
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Tổng số hệ thống", total)
-    col2.metric("Hệ thống có PII", pii_yes)
-    col3.metric("Tỷ lệ PII", f"{(pii_yes/total*100):.1f}%" if total else "0%")
-
-    st.divider()
-
-    def plot_bar(col_key: str, title: str):
-        if col_key not in export_df.columns:
-            st.caption(f"Không có cột: {col_key}")
-            return
-        s = export_df[col_key].fillna("N/A").astype(str)
-        vc = s.value_counts().reset_index()
-        vc.columns = [title, "count"]
-        st.subheader(title)
-        st.dataframe(vc, use_container_width=True, hide_index=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        plot_bar("B1.mo_hinh_ha_tang", "Mô hình hạ tầng")
-        plot_bar("A3.ke_hoach_3_5_nam", "Kế hoạch 3–5 năm")
-    with c2:
-        plot_bar("F.do_uu_tien", "Độ ưu tiên")
-        plot_bar("F.de_xuat", "Đề xuất quy hoạch")
+    row = [flat.get(h, "") for h in headers]
+    ws.append_row(row)
 
 
-def page_export():
-    st.header("Export dữ liệu")
+# ----------------------------
+# UI
+# ----------------------------
+st.set_page_config(page_title="Khảo sát hệ thống CNTT", layout="wide")
 
-    df = load_all_responses()
-    if df.empty:
-        st.info("Chưa có dữ liệu để export.")
-        return
+st.title("Tool số hóa form khảo sát hệ thống CNTT")
+st.caption("Streamlit app (deploy trên Streamlit Community Cloud). Có thể tải JSON/CSV, hoặc lưu Google Sheets (tuỳ chọn).")
 
-    st.write("Xuất Excel gồm:")
-    st.markdown("- **RawData**: dữ liệu đã flatten theo key (A1…, B1…, …)\n- Các sheet Summary: thống kê nhanh theo một số trường")
-
-    excel_bytes = build_export_excel(df)
-    st.download_button(
-        label="Tải Excel",
-        data=excel_bytes,
-        file_name=f"it_system_survey_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
+with st.sidebar:
+    st.header("Thiết lập")
+    save_mode = st.radio(
+        "Chế độ lưu",
+        options=["Chỉ tải về (JSON/CSV)", "Lưu Google Sheets (khuyến nghị trên Cloud)"],
+        index=0,
     )
-
     st.divider()
-    st.subheader("Xem nhanh dữ liệu flatten")
-    export_df = to_flat_export_df(df)
-    st.dataframe(export_df.head(50), use_container_width=True, hide_index=True)
+    st.write("Gợi ý: dùng **Google Sheets** để lưu bền vững khi deploy trên Streamlit Cloud.")
 
+
+tabs = st.tabs([
+    "A. Tổng quan",
+    "B. Hạ tầng",
+    "C. Dữ liệu",
+    "D. Tích hợp",
+    "E. An toàn – Tuân thủ",
+    "F. Đánh giá & Định hướng",
+    "G. Quản lý – Lưu trữ",
+    "Xuất / Lưu",
+])
+
+# Use one big form to submit at once
+with st.form("survey_form", clear_on_submit=False):
+
+    # ----------------------------
+    # TAB A
+    # ----------------------------
+    with tabs[0]:
+        st.subheader("A. THÔNG TIN TỔNG QUAN, CHUNG")
+
+        st.markdown("### A1. Thông tin định danh hệ thống")
+        col1, col2 = st.columns(2)
+        with col1:
+            system_name = st.text_input("Tên hệ thống/phần mềm *")
+            system_code = st.text_input("Mã hệ thống (System Code) *")
+            business_group = st.selectbox(
+                "Nhóm nghiệp vụ",
+                options=[
+                    "Khai thác bay", "Bán – Thương mại", "Khách hàng", "Bảo dưỡng",
+                    "Tài chính", "Nhân sự", "An toàn – An ninh", "Khác"
+                ],
+                index=0,
+            )
+            business_owner = st.text_input("Đơn vị sở hữu nghiệp vụ (Business Owner)")
+        with col2:
+            it_owner = st.text_input("Đơn vị quản lý CNTT (IT Owner)")
+            vendor_partner = st.text_input("Nhà cung cấp / Đối tác")
+            system_type = st.multiselect(
+                "Loại hệ thống",
+                options=["COTS", "SaaS", "In-house", "Outsource", "Legacy"],
+            )
+            value_chain_role = st.multiselect(
+                "Vai trò trong chuỗi giá trị hàng không",
+                options=["Core", "Support", "Analytics", "Compliance"],
+            )
+
+        st.markdown("### A2. Mục tiêu & phạm vi")
+        col1, col2 = st.columns(2)
+        with col1:
+            business_goal = st.text_area("Mục tiêu nghiệp vụ chính", height=100)
+            functional_scope = st.text_area("Phạm vi chức năng", height=100)
+        with col2:
+            user_audience = st.text_area("Đối tượng người dùng", height=100)
+            user_count_current = st.number_input("Số lượng user (hiện tại)", min_value=0, step=1)
+            user_count_forecast = st.number_input("Số lượng user (dự kiến 3–5 năm)", min_value=0, step=1)
+            usage_region = st.multiselect("Khu vực sử dụng", options=["Nội địa", "Quốc tế", "Toàn mạng"])
+
+        st.markdown("### A3. Tình trạng & vòng đời")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            deployment_year = st.number_input("Năm triển khai", min_value=1980, max_value=2100, step=1, value=2020)
+            current_status = st.radio("Tình trạng hiện tại", options=["Đang vận hành", "Nâng cấp", "Thay thế", "Dừng"])
+        with col2:
+            business_fit_score = st.slider("Đánh giá mức độ đáp ứng nghiệp vụ (1–5)", min_value=1, max_value=5, value=3)
+        with col3:
+            plan_3_5y = st.radio("Kế hoạch 3–5 năm", options=["Giữ nguyên", "Nâng cấp", "Thay thế", "Hợp nhất"])
+
+    # ----------------------------
+    # TAB B
+    # ----------------------------
+    with tabs[1]:
+        st.subheader("B. THÔNG TIN VỀ HẠ TẦNG (INFRASTRUCTURE)")
+
+        st.markdown("### B1. Mô hình triển khai")
+        infra_model = st.radio("Mô hình hạ tầng", options=["On-Prem", "Private Cloud", "Public Cloud", "Hybrid"])
+        dc_region = st.text_input("Vị trí DC/Cloud Region")
+        infra_provider = st.text_input("Nhà cung cấp hạ tầng (AWS/Azure/GCP/IDC…)")
+
+        st.markdown("### B2. Tài nguyên hạ tầng")
+        col1, col2 = st.columns(2)
+        with col1:
+            servers = st.text_area("Máy chủ (VM/Physical)", height=80)
+            os_info = st.text_input("Hệ điều hành")
+            cpu_ram_storage = st.text_input("CPU / RAM / Storage")
+        with col2:
+            db_engine = st.text_input("Database Engine")
+            middleware = st.text_input("Middleware")
+            network = st.text_input("Network (LAN/WAN/MPLS/VPN)")
+
+        st.markdown("### B3. Tính sẵn sàng & an toàn")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            sla_uptime = st.text_input("SLA (% uptime)", placeholder="Ví dụ: 99.9%")
+            ha_dr = st.radio("HA/DR", options=["Active-Active", "Active-Passive", "None"])
+        with col2:
+            rpo = st.text_input("RPO", placeholder="Ví dụ: 15 phút / 1 giờ")
+            rto = st.text_input("RTO", placeholder="Ví dụ: 2 giờ")
+        with col3:
+            backup = st.radio("Sao lưu dữ liệu", options=["Hàng ngày", "Thời gian thực"])
+            compliance = st.multiselect(
+                "Tuân thủ tiêu chuẩn",
+                options=["ISO 27001", "PCI DSS", "ICAO", "IATA", "An ninh HK"],
+            )
+
+    # ----------------------------
+    # TAB C
+    # ----------------------------
+    with tabs[2]:
+        st.subheader("C. THÔNG TIN VỀ DỮ LIỆU (DATA)")
+
+        st.markdown("### C1. Loại dữ liệu")
+        main_business_data = st.text_area("Dữ liệu nghiệp vụ chính", height=80)
+        pii = st.radio("Dữ liệu cá nhân (PII)", options=["Có", "Không"])
+        sensitive_aviation = st.text_area("Dữ liệu nhạy cảm / an ninh hàng không", height=80)
+        financial_payment = st.text_area("Dữ liệu tài chính / thanh toán", height=80)
+
+        st.markdown("### C2. Quản lý & chất lượng dữ liệu")
+        col1, col2 = st.columns(2)
+        with col1:
+            source_of_truth = st.text_input("Nguồn dữ liệu (Source of Truth)")
+            data_format = st.selectbox("Định dạng dữ liệu", options=["Structured", "Semi", "Unstructured"])
+            data_volume = st.text_input("Dung lượng dữ liệu (hiện tại / tăng trưởng năm)", placeholder="Ví dụ: 2TB / +20%/năm")
+        with col2:
+            retention_policy = st.text_area("Chính sách lưu trữ & xóa dữ liệu", height=80)
+            data_quality = st.multiselect("Chất lượng dữ liệu", options=["Đầy đủ", "Chính xác", "Kịp thời"])
+
+        st.markdown("### C3. Khai thác & phân tích")
+        bi_ai = st.radio("Có cung cấp dữ liệu cho BI/AI không?", options=["Có", "Không"])
+        dwh_datalake = st.text_input("Kết nối Data Warehouse / Data Lake")
+        sync_frequency = st.text_input("Tần suất đồng bộ dữ liệu", placeholder="Ví dụ: 5 phút / hàng ngày / theo batch")
+        realtime_data = st.radio("Dữ liệu thời gian thực (Real-time)", options=["Có", "Không"])
+
+    # ----------------------------
+    # TAB D
+    # ----------------------------
+    with tabs[3]:
+        st.subheader("D. THÔNG TIN VỀ CÔNG NGHỆ TÍCH HỢP / CHIA SẺ")
+
+        st.markdown("### D1. Tích hợp hệ thống")
+        related_systems = st.text_area(
+            "Các hệ thống liên quan (PSS, DCS, MRO, CRM, ERP, Contact Center…)",
+            height=80,
+        )
+        integration_role = st.radio("Vai trò", options=["Gửi", "Nhận", "Hai chiều"])
+        integration_method = st.multiselect("Hình thức tích hợp", options=["API", "ESB", "Message Queue", "File", "Manual"])
+
+        st.markdown("### D2. Chuẩn & giao thức")
+        data_standard = st.multiselect("Chuẩn dữ liệu", options=["IATA NDC", "AIDX", "EDIFACT", "XML", "JSON"])
+        protocol = st.multiselect("Giao thức", options=["REST", "SOAP", "MQ", "SFTP"])
+        integration_frequency = st.radio("Tần suất tích hợp", options=["Real-time", "Near real-time", "Batch"])
+
+        st.markdown("### D3. Quản trị tích hợp")
+        api_gateway = st.radio("Có API Gateway không?", options=["Có", "Không"])
+        logging_monitoring = st.radio("Có logging / monitoring không?", options=["Có", "Không"])
+        api_versioning = st.text_input("Quản lý version API", placeholder="Ví dụ: v1/v2, semantic versioning, theo header…")
+        dependency_level = st.radio("Mức độ phụ thuộc hệ thống khác", options=["Low", "Medium", "High"])
+
+    # ----------------------------
+    # TAB E
+    # ----------------------------
+    with tabs[4]:
+        st.subheader("E. THÔNG TIN AN TOÀN – TUÂN THỦ (KHUYẾN NGHỊ)")
+
+        rbac = st.text_area("Phân quyền truy cập (RBAC)", height=80)
+        auth = st.multiselect("Xác thực", options=["SSO", "MFA"])
+        encryption = st.multiselect("Mã hóa dữ liệu", options=["At-rest", "In-transit"])
+        legal_compliance = st.multiselect("Tuân thủ pháp lý", options=["GDPR", "Luật ATTT VN", "ICAO Annex 17"])
+
+    # ----------------------------
+    # TAB F
+    # ----------------------------
+    with tabs[5]:
+        st.subheader("F. ĐÁNH GIÁ & ĐỊNH HƯỚNG QUY HOẠCH")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            digital_strategy_fit = st.slider("Mức độ phù hợp chiến lược số (1–5)", 1, 5, 3)
+            cloud_ai_readiness = st.selectbox("Mức độ sẵn sàng Cloud / AI", options=["Thấp", "Trung bình", "Cao"])
+        with col2:
+            scalability = st.selectbox("Khả năng mở rộng (Scalability)", options=["Thấp", "Trung bình", "Cao"])
+
+        recommendation = st.radio("Đề xuất", options=["Giữ nguyên", "Nâng cấp", "Hợp nhất", "Thay thế"])
+        priority = st.radio("Độ ưu tiên", options=["High", "Medium", "Low"])
+
+    # ----------------------------
+    # TAB G
+    # ----------------------------
+    with tabs[6]:
+        st.subheader("G. THÔNG TIN QUẢN LÝ – LƯU TRỮ")
+
+        updated_by = st.text_input("Người cập nhật *")
+        updated_date = st.date_input("Ngày cập nhật", value=date.today())
+        form_version = st.text_input("Phiên bản form", value="1.0")
+        notes = st.text_area("Ghi chú", height=100)
+
+    # ----------------------------
+    # Submit
+    # ----------------------------
+    with tabs[7]:
+        st.subheader("Xuất / Lưu")
+        st.write("Nhấn **Submit** để chốt dữ liệu và xuất file / lưu Google Sheets.")
+
+        submitted = st.form_submit_button("Submit", type="primary")
 
 # ----------------------------
-# Main
+# Process submission
 # ----------------------------
-def main():
-    st.set_page_config(page_title="Khảo sát hệ thống CNTT", layout="wide")
-    init_db()
+if submitted:
+    # Basic validation
+    errors = []
+    if not required(system_name):
+        errors.append("Thiếu: Tên hệ thống/phần mềm")
+    if not required(system_code):
+        errors.append("Thiếu: Mã hệ thống (System Code)")
+    if not required(updated_by):
+        errors.append("Thiếu: Người cập nhật")
 
-    st.sidebar.title("Công cụ khảo sát hệ thống CNTT")
-    page = st.sidebar.radio("Chức năng", ["Nhập/Cập nhật", "Danh sách", "Dashboard", "Export"], index=0)
-
-    if page == "Nhập/Cập nhật":
-        page_form()
-    elif page == "Danh sách":
-        page_list()
-    elif page == "Dashboard":
-        page_dashboard()
-    else:
-        page_export()
-
-
-if __name__ == "__main__":
-    main()
+    if errors:
+        st.error("Vui lòng bổ sung các trường bắt buộc:\n- " + "\n- ".join
