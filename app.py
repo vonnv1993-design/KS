@@ -1,296 +1,240 @@
 import streamlit as st
-import json, os
+import pandas as pd
+import json
+import os
 from datetime import datetime
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
 
 # ======================
 # CONFIG
 # ======================
 st.set_page_config(
-    page_title="Vietnam Airlines | IT Survey",
+    page_title="IT Application Survey – Vietnam Airlines",
     layout="wide"
 )
 
-DATA_DIR = "data"
+DATA_DIR = "data/json"
+EXCEL_DIR = "data/excel"
 os.makedirs(DATA_DIR, exist_ok=True)
-
-if "form" not in st.session_state:
-    st.session_state.form = {
-        "A": {"A1": {}, "A2": {}, "A3": {}},
-        "B": {"B1": {}, "B2": {}, "B3": {}},
-        "C": {"C1": {}, "C2": {}, "C3": {}},
-        "D": {"D1": {}, "D2": {}, "D3": {}},
-        "E": {},
-        "F": {},
-        "G": {}
-    }
-
-f = st.session_state.form
+os.makedirs(EXCEL_DIR, exist_ok=True)
 
 # ======================
-# DARK MODE – VNA BRAND
+# BRAND STYLE
 # ======================
 st.markdown("""
 <style>
-html, body {
-    background-color: #0B1220;
-    color: #E5E7EB;
-    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+body {
+    background-color: #0B2A4A;
 }
-header {visibility: hidden;}
-.block-container {
-    padding: 1.4rem 2rem;
+section[data-testid="stSidebar"] {
+    background-color: #003A8F;
 }
-
-/* ===== HEADER ===== */
-.vna-header {
-    background: linear-gradient(90deg,#005EB8,#003A75);
-    padding: 24px 28px;
-    border-radius: 18px;
-    margin-bottom: 28px;
+h1, h2, h3 {
+    color: #005EB8;
 }
-.vna-header h2 {
-    margin: 0;
-    color: white;
-}
-.vna-header p {
-    margin: 6px 0 0;
-    color: #E5E7EB;
-    opacity: 0.9;
-}
-
-/* ===== CARDS ===== */
-.vna-card {
-    background: #111A2E;
-    border-radius: 16px;
-    padding: 22px 24px;
-    border: 1px solid #1F2A44;
-    margin-bottom: 26px;
-}
-.vna-card:hover {
-    border-color: #005EB8;
-}
-
-/* ===== INPUTS ===== */
-.stTextInput input,
-.stTextArea textarea,
-.stSelectbox select {
-    background-color: #0B1220 !important;
-    color: #E5E7EB !important;
-    border-radius: 10px !important;
-    border: 1px solid #1F2A44 !important;
-    padding: 10px 12px !important;
-}
-.stTextInput input:focus,
-.stTextArea textarea:focus {
-    border-color: #005EB8 !important;
-    box-shadow: 0 0 0 2px rgba(0,94,184,0.25);
-}
-
-/* ===== LABELS ===== */
-label {
-    color: #E5E7EB !important;
-}
-
-/* ===== RADIO / CHECKBOX ===== */
-.stRadio label,
-.stCheckbox label {
-    font-size: 0.95rem;
-}
-
-/* ===== SLIDER ===== */
-.stSlider > div {
-    color: #F5C400;
-}
-
-/* ===== BUTTONS ===== */
-.stButton > button {
-    background-color: #005EB8;
-    color: white;
-    border-radius: 12px;
-    padding: 10px 24px;
-    border: none;
-    font-weight: 600;
-}
-.stButton > button:hover {
-    background-color: #004A94;
-}
-.stButton.secondary > button {
-    background-color: #F5C400;
-    color: #0B1220;
-}
-
-/* ===== TABS ===== */
-.stTabs [role="tab"] {
-    padding: 14px 20px;
-    font-weight: 600;
-    border-radius: 14px;
-    background: #111A2E;
-    margin-right: 8px;
-    color: #9CA3AF;
-}
-.stTabs [aria-selected="true"] {
-    background-color: #005EB8;
-    color: white;
-}
-
-/* ===== RESPONSIVE ===== */
-@media (max-width: 900px) {
-    .block-container {
-        padding: 1rem;
-    }
-    .vna-card {
-        padding: 18px;
-    }
-    .stTabs [role="tab"] {
-        padding: 10px 14px;
-        font-size: 0.9rem;
-    }
+div.stButton > button {
+    background-color: #FFC72C;
+    color: black;
+    border-radius: 6px;
+    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
 
+st.title("✈️ KHẢO SÁT QUY HOẠCH HỆ THỐNG CNTT – VIETNAM AIRLINES")
+
 # ======================
-# HEADER
+# SESSION INIT
 # ======================
-st.markdown("""
-<div class="vna-header">
-    <h2>✈️ VIETNAM AIRLINES</h2>
-    <p>Khảo sát Quy hoạch Hệ thống CNTT & Kiến trúc Doanh nghiệp</p>
-</div>
-""", unsafe_allow_html=True)
+if "form_data" not in st.session_state:
+    st.session_state.form_data = {}
 
 # ======================
 # TABS
 # ======================
-tabA, tabB, tabC, tabD, tabE, tabF, tabG = st.tabs([
-    "A. Thông tin chung",
-    "B. Hạ tầng",
-    "C. Dữ liệu",
-    "D. Tích hợp",
-    "E. An toàn – Tuân thủ",
-    "F. Đánh giá – Quy hoạch",
-    "G. Lưu & Quản lý"
-])
+tabA, tabB, tabC, tabD, tabE, tabF, tabG = st.tabs(
+    ["A. Thông tin chung", "B. Hạ tầng", "C. Dữ liệu",
+     "D. Tích hợp", "E. An toàn", "F. Định hướng", "G. Quản lý"]
+)
 
 # ======================
 # TAB A
 # ======================
 with tabA:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    st.subheader("A1. Thông tin định danh")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        f["A"]["A1"]["system_name"] = st.text_input("Tên hệ thống")
-        f["A"]["A1"]["system_code"] = st.text_input("Mã hệ thống")
-        f["A"]["A1"]["business_owner"] = st.text_input("Đơn vị nghiệp vụ")
-
-    with col2:
-        f["A"]["A1"]["it_owner"] = st.text_input("Đơn vị CNTT")
-        f["A"]["A1"]["vendor"] = st.text_input("Nhà cung cấp")
-        f["A"]["A1"]["system_type"] = st.multiselect(
-            "Loại hệ thống",
-            ["COTS","SaaS","In-house","Outsource","Legacy"]
-        )
-
-    f["A"]["A1"]["business_group"] = st.multiselect(
+    st.subheader("A. THÔNG TIN CHUNG")
+    system_name = st.text_input("Tên hệ thống")
+    system_code = st.text_input("Mã hệ thống")
+    business_group = st.multiselect(
         "Nhóm nghiệp vụ",
-        ["Khai thác bay","Thương mại","Dịch vụ","Kỹ thuật","Tài chính","Nhân sự","An toàn – An ninh","Quản lý chung"]
+        ["Khai thác bay", "Thương mại", "Dịch vụ", "Kỹ thuật",
+         "Tài chính", "Nhân sự", "An toàn – An ninh", "Quản lý chung"]
     )
-    st.markdown("</div>", unsafe_allow_html=True)
+    business_owner = st.text_input("Business Owner")
+    it_owner = st.text_input("IT Owner")
+    vendor = st.text_input("Nhà cung cấp")
+    system_type = st.multiselect(
+        "Loại hệ thống",
+        ["COTS", "SaaS", "In-house", "Outsource", "Legacy"]
+    )
+    value_chain = st.multiselect(
+        "Vai trò chuỗi giá trị",
+        ["Core", "Support", "Analytics", "Compliance"]
+    )
+    deploy_year = st.selectbox("Năm triển khai", range(2000, 2051))
+    status = st.radio("Tình trạng", ["Đang vận hành", "Nâng cấp", "Thay thế", "Dừng"])
 
 # ======================
 # TAB B
 # ======================
 with tabB:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["B"]["B1"]["infra_model"] = st.multiselect(
-        "Mô hình hạ tầng",
-        ["On-Prem","Private Cloud","Public Cloud","Hybrid"]
+    st.subheader("B. HẠ TẦNG")
+    infra_model = st.multiselect(
+        "Mô hình triển khai",
+        ["On-Prem", "Private Cloud", "Public Cloud", "Hybrid"]
     )
-    f["B"]["B1"]["provider"] = st.multiselect(
+    dc_region = st.text_input("DC / Cloud Region")
+    infra_provider = st.multiselect(
         "Nhà cung cấp",
-        ["AWS","Azure","Viettel","VNPT","FPT","Khác"]
+        ["AWS", "Azure", "Viettel", "VNPT", "FPT", "Khác"]
     )
-    f["B"]["B3"]["sla"] = st.slider("SLA (%)",90,100)
-    st.markdown("</div>", unsafe_allow_html=True)
+    server_type = st.radio("Máy chủ", ["VM", "Physical"])
+    os_name = st.text_input("Hệ điều hành")
+    resource = st.text_input("CPU / RAM / Storage")
+    sla = st.slider("SLA (%)", 90, 100)
+    ha_dr = st.multiselect("HA / DR", ["Active-Active", "Active-Passive", "None"])
 
 # ======================
 # TAB C
 # ======================
 with tabC:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["C"]["C1"]["pii"] = st.radio("Dữ liệu cá nhân (PII)",["Có","Không"],horizontal=True)
-    f["C"]["C1"]["sensitive"] = st.radio("Dữ liệu nhạy cảm",["Có","Không"],horizontal=True)
-    f["C"]["C3"]["bi_ai"] = st.radio("Cung cấp cho BI/AI",["Có","Không"],horizontal=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.subheader("C. DỮ LIỆU")
+    pii = st.radio("PII", ["Có", "Không"])
+    sensitive = st.radio("Dữ liệu nhạy cảm", ["Có", "Không"])
+    finance = st.radio("Dữ liệu tài chính", ["Có", "Không"])
+    cross_border = st.radio("Dữ liệu ra nước ngoài", ["Có", "Không"])
+    data_source = st.text_input("Source of Truth")
+    data_quality = st.multiselect(
+        "Chất lượng dữ liệu",
+        ["Đầy đủ", "Chính xác", "Kịp thời"]
+    )
 
 # ======================
 # TAB D
 # ======================
 with tabD:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["D"]["D1"]["systems"] = st.text_area(
+    st.subheader("D. TÍCH HỢP")
+    integration_desc = st.text_area(
         "Danh sách hệ thống tích hợp",
         placeholder="PSS | Hai chiều | API"
     )
-    f["D"]["D3"]["api_gateway"] = st.radio("API Gateway",["Có","Không"],horizontal=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    data_standard = st.multiselect(
+        "Chuẩn dữ liệu",
+        ["IATA NDC", "AIDX", "EDIFACT", "XML", "JSON"]
+    )
+    protocol = st.multiselect(
+        "Giao thức",
+        ["REST", "SOAP", "MQ", "SFTP"]
+    )
+    api_gateway = st.radio("API Gateway", ["Có", "Không"])
+    logging = st.radio("Logging / Monitoring", ["Có", "Không"])
 
 # ======================
 # TAB E
 # ======================
 with tabE:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["E"]["auth"] = st.multiselect("Xác thực",["SSO","MFA","Khác"])
-    f["E"]["legal"] = st.multiselect(
-        "Tuân thủ pháp lý",
-        ["Luật ATTT VN","GDPR","ICAO Annex 17","Quy chế ANTT TCTHK"]
+    st.subheader("E. AN TOÀN – TUÂN THỦ")
+    rbac = st.text_input("RBAC")
+    auth = st.multiselect("Xác thực", ["SSO", "MFA", "Khác"])
+    legal = st.multiselect(
+        "Tuân thủ",
+        ["GDPR", "Luật ATTT VN", "ICAO Annex 17", "Quy chế ANTT TCTHK"]
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
 # TAB F
 # ======================
 with tabF:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["F"]["strategy_fit"] = st.slider("Phù hợp chiến lược số",1,5)
-    f["F"]["proposal"] = st.radio(
-        "Định hướng",
-        ["Giữ nguyên","Nâng cấp","Hợp nhất","Thay thế"],
-        horizontal=True
+    st.subheader("F. ĐỊNH HƯỚNG")
+    strategy_fit = st.slider("Phù hợp chiến lược (1–5)", 1, 5)
+    proposal = st.radio(
+        "Đề xuất",
+        ["Giữ nguyên", "Nâng cấp", "Hợp nhất", "Thay thế"]
     )
-    f["F"]["priority"] = st.radio(
-        "Ưu tiên",
-        ["High","Medium","Low"],
-        horizontal=True
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    priority = st.radio("Ưu tiên", ["High", "Medium", "Low"])
 
 # ======================
-# TAB G – SAVE
+# TAB G
 # ======================
 with tabG:
-    st.markdown("<div class='vna-card'>", unsafe_allow_html=True)
-    f["G"]["updated_by"] = st.text_input("Người cập nhật")
-    f["G"]["updated_date"] = datetime.now().strftime("%d/%m/%Y")
-    f["G"]["version"] = st.text_input("Phiên bản","v1.0")
-    f["G"]["note"] = st.text_area("Ghi chú")
+    st.subheader("G. QUẢN LÝ")
+    updated_by = st.text_input("Người cập nhật")
+    version = st.text_input("Phiên bản", "v1.0")
+    note = st.text_area("Ghi chú")
 
-    col1, col2 = st.columns(2)
+# ======================
+# SAVE DATA
+# ======================
+form_data = {
+    "system_name": system_name,
+    "system_code": system_code,
+    "business_group": business_group,
+    "business_owner": business_owner,
+    "it_owner": it_owner,
+    "vendor": vendor,
+    "system_type": system_type,
+    "value_chain": value_chain,
+    "deploy_year": deploy_year,
+    "status": status,
+    "infra_model": infra_model,
+    "dc_region": dc_region,
+    "infra_provider": infra_provider,
+    "sla": sla,
+    "pii": pii,
+    "sensitive": sensitive,
+    "finance": finance,
+    "cross_border": cross_border,
+    "integration": integration_desc,
+    "strategy_fit": strategy_fit,
+    "proposal": proposal,
+    "priority": priority,
+    "updated_by": updated_by,
+    "updated_date": datetime.now().strftime("%d/%m/%Y"),
+    "version": version,
+    "note": note
+}
 
-    with col1:
-        if st.button("💾 LƯU TẠM"):
-            fn = f"DRAFT_{f['A']['A1'].get('system_code','NA')}.json"
-            with open(os.path.join(DATA_DIR,fn),"w",encoding="utf-8") as fp:
-                json.dump(f,fp,ensure_ascii=False,indent=2)
-            st.success(f"Đã lưu tạm: {fn}")
+# ======================
+# ACTION BUTTONS
+# ======================
+st.divider()
+col1, col2, col3 = st.columns(3)
 
-    with col2:
-        if st.button("✅ HOÀN TẤT"):
-            fn = f"{f['A']['A1'].get('system_code','NA')}.json"
-            with open(os.path.join(DATA_DIR,fn),"w",encoding="utf-8") as fp:
-                json.dump(f,fp,ensure_ascii=False,indent=2)
-            st.success(f"Đã lưu chính thức: {fn}")
+with col1:
+    if st.button("💾 Lưu JSON theo đơn vị"):
+        filename = f"{system_code or 'system'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(os.path.join(DATA_DIR, filename), "w", encoding="utf-8") as f:
+            json.dump(form_data, f, ensure_ascii=False, indent=2)
+        st.success("Đã lưu JSON thành công")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+with col2:
+    if st.button("📊 Xuất Excel Master"):
+        files = [f for f in os.listdir(DATA_DIR) if f.endswith(".json")]
+        rows = []
+        for file in files:
+            with open(os.path.join(DATA_DIR, file), encoding="utf-8") as f:
+                rows.append(json.load(f))
+        df = pd.DataFrame(rows)
+        buffer = BytesIO()
+        df.to_excel(buffer, index=False)
+        st.download_button(
+            "⬇️ Tải Excel",
+            buffer.getvalue(),
+            "IT_Survey_Master.xlsx"
+        )
+
+with col3:
+    st.info("PDF A4 chuẩn in: dùng module riêng (next step)")
+
